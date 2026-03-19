@@ -1,0 +1,85 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.opendb
+x64/
+x86/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+install_manifest.txt
+compile_commands.json
+
+# Object files
+*.obj
+*.o
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.dll
+*.so
+*.dylib
+
+# Executables
+*.exe
+*.out
+
+# Debug
+*.pdb
+*.ilk
+*.exp
+
+# Test results
+Testing/
+*.xml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Corpus / generated test data
+testdata/*.exe
+testdata/*.dll
+
+# Signature databases (generated)
+*.akavdb
+*.akavdb.new
+*.akavdb.prev
+
+# Quarantine vault
+Quarantine/
+
+# Logs
+*.jsonl
+*.log
