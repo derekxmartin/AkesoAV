@@ -32,6 +32,7 @@ set(AKAV_ENGINE_SOURCES
     src/engine_shims.cpp
     src/file_type.cpp
     src/parsers/safe_reader.cpp
+    src/signatures/bloom.cpp
 )
 
 add_library(akesoav_core STATIC ${AKAV_ENGINE_SOURCES})
@@ -69,6 +70,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_file_type.cpp
         tests/unit/test_eicar.cpp
         tests/unit/test_engine_lifecycle.cpp
+        tests/unit/test_bloom.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
