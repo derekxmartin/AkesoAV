@@ -72,7 +72,17 @@ typedef struct {
     uint32_t raw_data_size;
     uint32_t raw_data_offset;
     uint32_t characteristics;
+    double   entropy;           /* Shannon entropy (0.0–8.0), -1 if not computed */
 } akav_pe_section_t;
+
+/* ── Resource types ──────────────────────────────────────────────── */
+
+#define AKAV_PE_MAX_RESOURCE_TYPES 32
+
+typedef struct {
+    uint32_t type_id;           /* RT_ICON=3, RT_VERSION=16, etc. */
+    uint32_t count;             /* number of entries of this type */
+} akav_pe_resource_type_t;
 
 /* ── Import structures ────────────────────────────────────────────── */
 
@@ -170,6 +180,21 @@ typedef struct {
     akav_pe_export_func_t* export_funcs;      /* heap-allocated */
     uint32_t               num_export_funcs;
 
+    /* Metadata (P2-T3) */
+    bool     has_overlay;
+    uint32_t overlay_offset;         /* file offset where overlay starts */
+    uint32_t overlay_size;           /* bytes after last section's raw data */
+
+    bool     has_rich_header;
+    uint8_t  rich_header_hash[16];   /* MD5 of Rich header clear-text */
+
+    bool     has_authenticode;       /* security dir present and non-empty */
+    uint32_t authenticode_offset;    /* file offset of WIN_CERTIFICATE */
+    uint32_t authenticode_size;
+
+    uint32_t              num_resource_types;
+    akav_pe_resource_type_t resource_types[AKAV_PE_MAX_RESOURCE_TYPES];
+
     /* Parse status */
     bool     valid;
     char     error[128];
@@ -226,6 +251,42 @@ const akav_pe_section_t* akav_pe_find_section(const akav_pe_t* pe,
  * Returns 0 if the RVA doesn't fall within any section.
  */
 uint32_t akav_pe_rva_to_offset(const akav_pe_t* pe, uint32_t rva);
+
+/**
+ * Compute Shannon entropy for each section's raw data.
+ * Updates pe->sections[i].entropy (0.0–8.0). -1 if section has no raw data.
+ */
+void akav_pe_compute_entropy(akav_pe_t* pe, const uint8_t* data, size_t data_len);
+
+/**
+ * Detect overlay data (bytes after the last section's raw data).
+ * Populates pe->has_overlay, overlay_offset, overlay_size.
+ */
+void akav_pe_detect_overlay(akav_pe_t* pe, size_t data_len);
+
+/**
+ * Parse and hash the Rich header (between DOS stub and PE signature).
+ * Populates pe->has_rich_header and pe->rich_header_hash (MD5).
+ */
+void akav_pe_parse_rich_header(akav_pe_t* pe, const uint8_t* data, size_t data_len);
+
+/**
+ * Check for Authenticode certificate table presence.
+ * Populates pe->has_authenticode, authenticode_offset, authenticode_size.
+ */
+void akav_pe_detect_authenticode(akav_pe_t* pe, size_t data_len);
+
+/**
+ * Enumerate resource types from the resource directory.
+ * Populates pe->resource_types[] and pe->num_resource_types.
+ */
+void akav_pe_enumerate_resources(akav_pe_t* pe, const uint8_t* data, size_t data_len);
+
+/**
+ * Run all metadata analysis (entropy, overlay, rich header, authenticode, resources).
+ * Convenience function that calls all the above.
+ */
+void akav_pe_analyze_metadata(akav_pe_t* pe, const uint8_t* data, size_t data_len);
 
 #ifdef __cplusplus
 }
