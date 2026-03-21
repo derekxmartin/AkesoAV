@@ -9,16 +9,18 @@
 #include <cstdio>
 #include <chrono>
 
-/* EICAR test string (68 bytes) */
-static const char EICAR_STRING[] =
-    "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
-static const size_t EICAR_LEN = 68;
-
 namespace akav
 {
 
-Engine::Engine() = default;
-Engine::~Engine() = default;
+Engine::Engine()
+{
+    akav_scanner_init(&scanner_);
+}
+
+Engine::~Engine()
+{
+    akav_scanner_destroy(&scanner_);
+}
 
 akav_error_t Engine::init(const char* config_path)
 {
@@ -35,21 +37,28 @@ akav_error_t Engine::load_signatures(const char* db_path)
         return AKAV_ERROR_NOT_INIT;
     if (!db_path)
         return AKAV_ERROR_INVALID;
-    /* TODO: Phase 1 -- load .savdb from memory-mapped file */
-    return AKAV_OK;
-}
 
-bool Engine::check_eicar(const uint8_t* buf, size_t len) const
-{
-    if (len < EICAR_LEN)
-        return false;
-    /* Scan for EICAR string anywhere in the buffer */
-    for (size_t i = 0; i <= len - EICAR_LEN; i++)
-    {
-        if (memcmp(buf + i, EICAR_STRING, EICAR_LEN) == 0)
-            return true;
+    /* Tear down previous scanner state if reloading */
+    if (scanner_loaded_) {
+        akav_scanner_destroy(&scanner_);
+        akav_scanner_init(&scanner_);
+        scanner_loaded_ = false;
     }
-    return false;
+
+    akav_error_t err = akav_scanner_load(&scanner_, db_path);
+    if (err != AKAV_OK)
+        return err;
+
+    scanner_loaded_ = true;
+
+    /* Update db version string */
+    char version_buf[64];
+    snprintf(version_buf, sizeof(version_buf), "v%u (%u sigs)",
+             scanner_.sigdb.header->version,
+             scanner_.total_signatures);
+    db_version_str_ = version_buf;
+
+    return AKAV_OK;
 }
 
 akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* name,
@@ -81,16 +90,10 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
     const char* ftype_str = akav_file_type_name(ftype);
     strncpy_s(result->file_type, sizeof(result->file_type), ftype_str, _TRUNCATE);
 
-    /* EICAR check (hardcoded for Phase 0 -- replaced by signature engine in Phase 1) */
-    if (check_eicar(buf, len))
+    /* Run signature scan pipeline (Bloom → MD5 → SHA256 → CRC32 → Aho-Corasick) */
+    if (scanner_loaded_)
     {
-        result->found = 1;
-        strncpy_s(result->malware_name, sizeof(result->malware_name),
-                  "EICAR-Test-Signature", _TRUNCATE);
-        strncpy_s(result->signature_id, sizeof(result->signature_id),
-                  "eicar-test-001", _TRUNCATE);
-        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
-                  "byte_stream", _TRUNCATE);
+        akav_scanner_scan_buffer(&scanner_, buf, len, result);
     }
 
     auto end = std::chrono::steady_clock::now();
