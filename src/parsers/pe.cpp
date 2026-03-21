@@ -778,10 +778,14 @@ void akav_pe_parse_rich_header(akav_pe_t* pe, const uint8_t* data, size_t data_l
     if (BCRYPT_SUCCESS(status)) {
         status = BCryptCreateHash(alg, &hash, NULL, 0, NULL, 0, 0);
         if (BCRYPT_SUCCESS(status)) {
-            BCryptHashData(hash, decoded, (ULONG)rich_len, 0);
-            BCryptFinishHash(hash, pe->rich_header_hash, 16, 0);
+            status = BCryptHashData(hash, decoded, (ULONG)rich_len, 0);
+            if (BCRYPT_SUCCESS(status)) {
+                status = BCryptFinishHash(hash, pe->rich_header_hash, 16, 0);
+                if (BCRYPT_SUCCESS(status)) {
+                    pe->has_rich_header = true;
+                }
+            }
             BCryptDestroyHash(hash);
-            pe->has_rich_header = true;
         }
         BCryptCloseAlgorithmProvider(alg, 0);
     }

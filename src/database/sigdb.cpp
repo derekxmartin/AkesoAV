@@ -159,6 +159,7 @@ static bool validate_db(const akav_sigdb_t* /*db*/, const uint8_t* base, size_t 
             return false;
         }
 
+        __analysis_assume(signed_len >= pre_sig_size);
         memcpy(signed_data, base, pre_sig_size);
         if (section_data_len > 0) {
             memcpy(signed_data + pre_sig_size,

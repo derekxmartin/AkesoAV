@@ -1,0 +1,29 @@
+{
+    "md5": [
+        {
+            "name": "Malware.Test.MD5",
+            "hash": "44d88612fea8a8f36de82e1278abb02f"
+        }
+    ],
+    "sha256": [
+        {
+            "name": "Malware.Test.SHA256",
+            "hash": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+        }
+    ],
+    "crc32": [
+        {
+            "name": "Malware.Test.CRC32",
+            "region_type": 0,
+            "offset": 0,
+            "length": 0,
+            "crc32": "0x6851CF3C"
+        }
+    ],
+    "bytestream": [
+        {
+            "name": "EICAR.TestFile",
+            "pattern": "58354f215025404150"
+        }
+    ]
+}
