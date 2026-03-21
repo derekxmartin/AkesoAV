@@ -35,6 +35,7 @@ set(AKAV_ENGINE_SOURCES
     src/signatures/bloom.cpp
     src/signatures/hash_matcher.cpp
     src/signatures/crc_matcher.cpp
+    src/signatures/aho_corasick.cpp
 )
 
 add_library(akesoav_core STATIC ${AKAV_ENGINE_SOURCES})
@@ -75,6 +76,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_bloom.cpp
         tests/unit/test_hash_matcher.cpp
         tests/unit/test_crc_matcher.cpp
+        tests/unit/test_aho_corasick.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
