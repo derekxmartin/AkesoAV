@@ -178,8 +178,8 @@ if (-not $SkipAnalyze) {
             -DCMAKE_CXX_FLAGS="/analyze /analyze:external- /EHsc" 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "Analyze configure failed" }
 
-        # Build and capture warnings
-        $analyzeOutput = & cmake --build $AnalyzeDir --config Release 2>&1
+        # Build only our targets (skip GTest/GMock which trigger /analyze warnings)
+        $analyzeOutput = & cmake --build $AnalyzeDir --config Release --target akesoav akavscan 2>&1
         $analyzeOutput | Out-Host
 
         # Count /analyze warnings from our code only (exclude _deps/, third-party)
@@ -188,8 +188,9 @@ if (-not $SkipAnalyze) {
         if ($warnings.Count -gt 0) {
             Write-Fail "/analyze produced $($warnings.Count) warning(s)"
             $warnings | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        } elseif ($LASTEXITCODE -ne 0) {
+            throw "Analyze build failed"
         } else {
-            if ($LASTEXITCODE -ne 0) { throw "Analyze build failed" }
             Write-Pass "Zero /analyze warnings"
         }
     } catch {
