@@ -2,6 +2,8 @@
 #include "file_type.h"
 #include "parsers/safe_reader.h"
 #include "parsers/zip.h"
+#include "parsers/gzip.h"
+#include "parsers/tar.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -98,10 +100,18 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
     }
 
     /* If not yet detected and archive scanning is enabled, recurse into archives */
-    if (!result->found && opts->scan_archives && ftype == AKAV_FILETYPE_ZIP)
+    if (!result->found && opts->scan_archives)
     {
-        akav_error_t zip_err = scan_archive_zip(buf, len, opts, result, 0);
-        if (zip_err == AKAV_ERROR_BOMB)
+        akav_error_t arc_err = AKAV_OK;
+
+        if (ftype == AKAV_FILETYPE_ZIP)
+            arc_err = scan_archive_zip(buf, len, opts, result, 0);
+        else if (ftype == AKAV_FILETYPE_GZIP)
+            arc_err = scan_archive_gzip(buf, len, opts, result, 0);
+        else if (ftype == AKAV_FILETYPE_TAR)
+            arc_err = scan_archive_tar(buf, len, opts, result, 0);
+
+        if (arc_err == AKAV_ERROR_BOMB)
         {
             auto end = std::chrono::steady_clock::now();
             result->scan_time_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -204,6 +214,174 @@ akav_error_t Engine::scan_archive_zip(const uint8_t* buf, size_t len,
         if (result->warning_count < AKAV_MAX_WARNINGS) {
             strncpy_s(result->warnings[result->warning_count],
                       AKAV_MAX_WARNING_LEN, zip_ctx.error, _TRUNCATE);
+            result->warning_count++;
+        }
+    }
+
+    return AKAV_OK;
+}
+
+/* ── GZIP archive scanning ──────────────────────────────────────── */
+
+akav_error_t Engine::scan_archive_gzip(const uint8_t* buf, size_t len,
+                                        const akav_scan_options_t* opts,
+                                        akav_scan_result_t* result, int depth)
+{
+    if (depth >= opts->max_scan_depth)
+        return AKAV_OK;
+
+    akav_gzip_context_t gz_ctx;
+    akav_gzip_init(&gz_ctx);
+
+    uint8_t* decompressed = nullptr;
+    size_t   decomp_len = 0;
+
+    bool ok = akav_gzip_decompress(&gz_ctx, buf, len, &decompressed, &decomp_len);
+    if (!ok) {
+        if (gz_ctx.bomb_detected)
+            return AKAV_ERROR_BOMB;
+        /* Corrupt gzip — add warning */
+        if (result->warning_count < AKAV_MAX_WARNINGS) {
+            strncpy_s(result->warnings[result->warning_count],
+                      AKAV_MAX_WARNING_LEN, gz_ctx.error, _TRUNCATE);
+            result->warning_count++;
+        }
+        return AKAV_OK;
+    }
+
+    /* Scan the decompressed content through the pipeline */
+    akav_scan_options_t inner_opts = *opts;
+    inner_opts.scan_archives = 0; /* we handle recursion below */
+
+    akav_scan_result_t inner_result;
+    memset(&inner_result, 0, sizeof(inner_result));
+    akav_error_t err = scan_buffer(decompressed, decomp_len, "gzip-inner",
+                                    &inner_opts, &inner_result);
+
+    if (err == AKAV_ERROR_BOMB) {
+        free(decompressed);
+        return AKAV_ERROR_BOMB;
+    }
+
+    if (inner_result.found) {
+        result->found = 1;
+        memcpy(result->malware_name, inner_result.malware_name,
+               sizeof(result->malware_name));
+        memcpy(result->signature_id, inner_result.signature_id,
+               sizeof(result->signature_id));
+        memcpy(result->scanner_id, inner_result.scanner_id,
+               sizeof(result->scanner_id));
+        free(decompressed);
+        return AKAV_OK;
+    }
+
+    /* Check if decompressed data is another archive (e.g., .tar inside .tar.gz) */
+    akav_file_type_t inner_type = akav_detect_file_type(decompressed, decomp_len);
+    if (inner_type == AKAV_FILETYPE_TAR && opts->scan_archives) {
+        err = scan_archive_tar(decompressed, decomp_len, opts, result, depth + 1);
+    } else if (inner_type == AKAV_FILETYPE_ZIP && opts->scan_archives) {
+        err = scan_archive_zip(decompressed, decomp_len, opts, result, depth + 1);
+    } else if (inner_type == AKAV_FILETYPE_GZIP && opts->scan_archives) {
+        err = scan_archive_gzip(decompressed, decomp_len, opts, result, depth + 1);
+    }
+
+    free(decompressed);
+    return err;
+}
+
+/* ── TAR archive scanning ───────────────────────────────────────── */
+
+struct tar_scan_ctx {
+    akav::Engine*              engine;
+    const akav_scan_options_t* opts;
+    akav_scan_result_t*        result;
+    int                        depth;
+    bool                       bomb;
+};
+
+static bool tar_entry_callback(const char* filename, const uint8_t* data,
+                                size_t data_len, void* user_data)
+{
+    auto* ctx = (tar_scan_ctx*)user_data;
+    (void)filename;
+
+    /* Scan extracted entry (no archive recursion — we handle it here) */
+    akav_scan_options_t entry_opts = *ctx->opts;
+    entry_opts.scan_archives = 0;
+
+    akav_scan_result_t entry_result;
+    memset(&entry_result, 0, sizeof(entry_result));
+
+    akav_error_t err = ctx->engine->scan_buffer(
+        data, data_len, filename, &entry_opts, &entry_result);
+
+    if (err == AKAV_ERROR_BOMB) {
+        ctx->bomb = true;
+        return false;
+    }
+
+    if (entry_result.found) {
+        ctx->result->found = 1;
+        memcpy(ctx->result->malware_name, entry_result.malware_name,
+               sizeof(ctx->result->malware_name));
+        memcpy(ctx->result->signature_id, entry_result.signature_id,
+               sizeof(ctx->result->signature_id));
+        memcpy(ctx->result->scanner_id, entry_result.scanner_id,
+               sizeof(ctx->result->scanner_id));
+        return false; /* Stop: malware found */
+    }
+
+    /* Check if entry is itself an archive */
+    akav_file_type_t inner_type = akav_detect_file_type(data, data_len);
+    akav_error_t arc_err = AKAV_OK;
+    if (ctx->opts->scan_archives) {
+        if (inner_type == AKAV_FILETYPE_ZIP)
+            arc_err = ctx->engine->scan_archive_zip(data, data_len, ctx->opts,
+                                                     ctx->result, ctx->depth + 1);
+        else if (inner_type == AKAV_FILETYPE_GZIP)
+            arc_err = ctx->engine->scan_archive_gzip(data, data_len, ctx->opts,
+                                                      ctx->result, ctx->depth + 1);
+        else if (inner_type == AKAV_FILETYPE_TAR)
+            arc_err = ctx->engine->scan_archive_tar(data, data_len, ctx->opts,
+                                                     ctx->result, ctx->depth + 1);
+    }
+
+    if (arc_err == AKAV_ERROR_BOMB) {
+        ctx->bomb = true;
+        return false;
+    }
+    if (ctx->result->found)
+        return false;
+
+    return true; /* Continue extraction */
+}
+
+akav_error_t Engine::scan_archive_tar(const uint8_t* buf, size_t len,
+                                       const akav_scan_options_t* opts,
+                                       akav_scan_result_t* result, int depth)
+{
+    if (depth >= opts->max_scan_depth)
+        return AKAV_OK;
+
+    akav_tar_context_t tar_ctx;
+    akav_tar_init(&tar_ctx);
+
+    tar_scan_ctx scan_ctx;
+    scan_ctx.engine = this;
+    scan_ctx.opts = opts;
+    scan_ctx.result = result;
+    scan_ctx.depth = depth;
+    scan_ctx.bomb = false;
+
+    bool ok = akav_tar_extract(&tar_ctx, buf, len, tar_entry_callback, &scan_ctx);
+
+    if (scan_ctx.bomb || tar_ctx.bomb_detected)
+        return AKAV_ERROR_BOMB;
+
+    if (!ok && !result->found) {
+        if (result->warning_count < AKAV_MAX_WARNINGS) {
+            strncpy_s(result->warnings[result->warning_count],
+                      AKAV_MAX_WARNING_LEN, tar_ctx.error, _TRUNCATE);
             result->warning_count++;
         }
     }
