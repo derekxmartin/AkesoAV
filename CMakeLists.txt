@@ -11,6 +11,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(AKAV_BUILD_TESTS "Build unit tests" ON)
 option(AKAV_BUILD_FUZZ "Build fuzz targets (requires clang-cl)" OFF)
 
+# Fuzz builds: libFuzzer runtime is /MT, so force static CRT everywhere
+if(AKAV_BUILD_FUZZ)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
+endif()
+
 # ── Compiler warnings (applied per-target to avoid affecting fetched deps) ──
 if(MSVC)
     set(AKAV_WARNING_FLAGS /W4 /WX)
@@ -117,12 +122,36 @@ endif()
 
 # ── Fuzz targets (clang-cl + libFuzzer) ──
 if(AKAV_BUILD_FUZZ)
+    # Compile everything with fuzzer + ASan instrumentation
     add_compile_options(-fsanitize=fuzzer,address)
-    add_link_options(-fsanitize=fuzzer,address)
 
-    add_executable(fuzz_scan_buffer tests/fuzz/fuzz_scan_buffer.cpp)
-    target_link_libraries(fuzz_scan_buffer PRIVATE akesoav_core)
+    # Find clang runtime library directory for libFuzzer + ASan link libs.
+    # clang-cl doesn't auto-link these when CMake invokes lld-link directly.
+    execute_process(
+        COMMAND ${CMAKE_CXX_COMPILER} /clang:--print-resource-dir
+        OUTPUT_VARIABLE CLANG_RESOURCE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    set(CLANG_RT_DIR "${CLANG_RESOURCE_DIR}/lib/windows")
 
-    add_executable(fuzz_pe tests/fuzz/fuzz_pe.cpp)
-    target_link_libraries(fuzz_pe PRIVATE akesoav_core)
+    set(AKAV_FUZZ_LINK_LIBS
+        "${CLANG_RT_DIR}/clang_rt.fuzzer-x86_64.lib"
+        "${CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.lib"
+        "${CLANG_RT_DIR}/clang_rt.asan_dynamic_runtime_thunk-x86_64.lib"
+    )
+
+    # Copy ASan runtime DLL next to fuzz executables so they can run
+    file(COPY "${CLANG_RT_DIR}/clang_rt.asan_dynamic-x86_64.dll"
+         DESTINATION "${CMAKE_BINARY_DIR}")
+
+    # Macro to add a fuzz target with the correct link libraries
+    macro(akav_add_fuzz_target name source)
+        add_executable(${name} ${source})
+        target_link_libraries(${name} PRIVATE akesoav_core ${AKAV_FUZZ_LINK_LIBS})
+    endmacro()
+
+    akav_add_fuzz_target(fuzz_scan_buffer tests/fuzz/fuzz_scan_buffer.cpp)
+    akav_add_fuzz_target(fuzz_pe          tests/fuzz/fuzz_pe.cpp)
+    akav_add_fuzz_target(fuzz_zip         tests/fuzz/fuzz_zip.cpp)
+    akav_add_fuzz_target(fuzz_gzip        tests/fuzz/fuzz_gzip.cpp)
 endif()
