@@ -2,6 +2,7 @@
 #define AKAV_ENGINE_INTERNAL_H
 
 #include "akesoav.h"
+#include "scanner.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -50,9 +51,8 @@ private:
     std::atomic<bool> initialized_{false};
     std::string config_path_;
     std::string db_version_str_;
-
-    /* EICAR test string: X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H* */
-    bool check_eicar(const uint8_t* buf, size_t len) const;
+    akav_scanner_t scanner_{};
+    bool scanner_loaded_{false};
 };
 
 } /* namespace akav */
