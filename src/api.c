@@ -40,28 +40,28 @@ extern akav_error_t akav_shim_update_signatures(akav_engine_t* engine, const cha
 
 /* ── Engine lifecycle ── */
 
-AKAV_API akav_error_t akav_engine_create(akav_engine_t** engine)
+AKAV_API akav_error_t akav_engine_create(_Out_ akav_engine_t** engine)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
     return akav_shim_create(engine);
 }
 
-AKAV_API akav_error_t akav_engine_init(akav_engine_t* engine, const char* config_path)
+AKAV_API akav_error_t akav_engine_init(_In_ akav_engine_t* engine, _In_opt_z_ const char* config_path)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
     return akav_shim_init(engine, config_path);
 }
 
-AKAV_API akav_error_t akav_engine_load_signatures(akav_engine_t* engine, const char* db_path)
+AKAV_API akav_error_t akav_engine_load_signatures(_In_ akav_engine_t* engine, _In_z_ const char* db_path)
 {
     if (!engine || !db_path)
         return AKAV_ERROR_INVALID;
     return akav_shim_load_signatures(engine, db_path);
 }
 
-AKAV_API akav_error_t akav_engine_destroy(akav_engine_t* engine)
+AKAV_API akav_error_t akav_engine_destroy(_In_ akav_engine_t* engine)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
@@ -70,17 +70,18 @@ AKAV_API akav_error_t akav_engine_destroy(akav_engine_t* engine)
 
 /* ── Scanning ── */
 
-AKAV_API akav_error_t akav_scan_file(akav_engine_t* engine, const char* path,
-                                   const akav_scan_options_t* opts, akav_scan_result_t* result)
+AKAV_API akav_error_t akav_scan_file(_In_ akav_engine_t* engine, _In_z_ const char* path,
+                                   _In_opt_ const akav_scan_options_t* opts, _Out_ akav_scan_result_t* result)
 {
     if (!engine || !path || !result)
         return AKAV_ERROR_INVALID;
     return akav_shim_scan_file(engine, path, opts, result);
 }
 
-AKAV_API akav_error_t akav_scan_buffer(akav_engine_t* engine, const uint8_t* buf, size_t len,
-                                     const char* name, const akav_scan_options_t* opts,
-                                     akav_scan_result_t* result)
+AKAV_API akav_error_t akav_scan_buffer(_In_ akav_engine_t* engine,
+                                     _In_reads_bytes_(len) const uint8_t* buf, size_t len,
+                                     _In_opt_z_ const char* name, _In_opt_ const akav_scan_options_t* opts,
+                                     _Out_ akav_scan_result_t* result)
 {
     if (!engine || !result)
         return AKAV_ERROR_INVALID;
@@ -89,9 +90,9 @@ AKAV_API akav_error_t akav_scan_buffer(akav_engine_t* engine, const uint8_t* buf
     return akav_shim_scan_buffer(engine, buf, len, name, opts, result);
 }
 
-AKAV_API akav_error_t akav_scan_directory(akav_engine_t* engine, const char* path,
-                                        const akav_scan_options_t* opts,
-                                        akav_scan_callback_t callback, void* user_data)
+AKAV_API akav_error_t akav_scan_directory(_In_ akav_engine_t* engine, _In_z_ const char* path,
+                                        _In_opt_ const akav_scan_options_t* opts,
+                                        _In_ akav_scan_callback_t callback, _In_opt_ void* user_data)
 {
     if (!engine || !path || !callback)
         return AKAV_ERROR_INVALID;
@@ -100,15 +101,16 @@ AKAV_API akav_error_t akav_scan_directory(akav_engine_t* engine, const char* pat
 
 /* ── Cache management ── */
 
-AKAV_API akav_error_t akav_cache_clear(akav_engine_t* engine)
+AKAV_API akav_error_t akav_cache_clear(_In_ akav_engine_t* engine)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
     return akav_shim_cache_clear(engine);
 }
 
-AKAV_API akav_error_t akav_cache_stats(akav_engine_t* engine, uint64_t* hits,
-                                     uint64_t* misses, uint64_t* entries)
+AKAV_API akav_error_t akav_cache_stats(_In_ akav_engine_t* engine,
+                                     _Out_ uint64_t* hits, _Out_ uint64_t* misses,
+                                     _Out_ uint64_t* entries)
 {
     if (!engine || !hits || !misses || !entries)
         return AKAV_ERROR_INVALID;
@@ -117,28 +119,31 @@ AKAV_API akav_error_t akav_cache_stats(akav_engine_t* engine, uint64_t* hits,
 
 /* ── Whitelist management ── */
 
-AKAV_API akav_error_t akav_whitelist_add_hash(akav_engine_t* engine, const uint8_t sha256[32])
+AKAV_API akav_error_t akav_whitelist_add_hash(_In_ akav_engine_t* engine,
+                                            _In_reads_bytes_(32) const uint8_t sha256[32])
 {
     if (!engine || !sha256)
         return AKAV_ERROR_INVALID;
     return akav_shim_whitelist_add_hash(engine, sha256);
 }
 
-AKAV_API akav_error_t akav_whitelist_add_path(akav_engine_t* engine, const char* path_prefix)
+AKAV_API akav_error_t akav_whitelist_add_path(_In_ akav_engine_t* engine,
+                                            _In_z_ const char* path_prefix)
 {
     if (!engine || !path_prefix)
         return AKAV_ERROR_INVALID;
     return akav_shim_whitelist_add_path(engine, path_prefix);
 }
 
-AKAV_API akav_error_t akav_whitelist_add_signer(akav_engine_t* engine, const char* signer_name)
+AKAV_API akav_error_t akav_whitelist_add_signer(_In_ akav_engine_t* engine,
+                                              _In_z_ const char* signer_name)
 {
     if (!engine || !signer_name)
         return AKAV_ERROR_INVALID;
     return akav_shim_whitelist_add_signer(engine, signer_name);
 }
 
-AKAV_API akav_error_t akav_whitelist_clear(akav_engine_t* engine)
+AKAV_API akav_error_t akav_whitelist_clear(_In_ akav_engine_t* engine)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
@@ -154,7 +159,7 @@ AKAV_API const char* akav_engine_version(void)
     return AKAV_VERSION;
 }
 
-AKAV_API const char* akav_db_version(akav_engine_t* engine)
+AKAV_API const char* akav_db_version(_In_ akav_engine_t* engine)
 {
     if (!engine)
         return "unknown";
@@ -182,7 +187,8 @@ AKAV_API const char* akav_strerror(akav_error_t err)
 
 /* ── Update ── */
 
-AKAV_API akav_error_t akav_update_signatures(akav_engine_t* engine, const char* update_url)
+AKAV_API akav_error_t akav_update_signatures(_In_ akav_engine_t* engine,
+                                           _In_z_ const char* update_url)
 {
     if (!engine || !update_url)
         return AKAV_ERROR_INVALID;
@@ -191,23 +197,23 @@ AKAV_API akav_error_t akav_update_signatures(akav_engine_t* engine, const char* 
 
 /* ── SIEM ── */
 
-AKAV_API akav_error_t akav_set_siem_callback(akav_engine_t* engine,
-                                           akav_siem_callback_t callback, void* user_data)
+AKAV_API akav_error_t akav_set_siem_callback(_In_ akav_engine_t* engine,
+                                           _In_opt_ akav_siem_callback_t callback, _In_opt_ void* user_data)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
     return akav_shim_set_siem_callback(engine, callback, user_data);
 }
 
-AKAV_API akav_error_t akav_siem_start_http_shipper(akav_engine_t* engine,
-                                                  const char* siem_url, const char* api_key)
+AKAV_API akav_error_t akav_siem_start_http_shipper(_In_ akav_engine_t* engine,
+                                                  _In_z_ const char* siem_url, _In_z_ const char* api_key)
 {
     if (!engine || !siem_url || !api_key)
         return AKAV_ERROR_INVALID;
     return akav_shim_siem_start_http_shipper(engine, siem_url, api_key);
 }
 
-AKAV_API akav_error_t akav_siem_stop_http_shipper(akav_engine_t* engine)
+AKAV_API akav_error_t akav_siem_stop_http_shipper(_In_ akav_engine_t* engine)
 {
     if (!engine)
         return AKAV_ERROR_INVALID;
@@ -216,7 +222,7 @@ AKAV_API akav_error_t akav_siem_stop_http_shipper(akav_engine_t* engine)
 
 /* ── Defaults ── */
 
-AKAV_API void akav_scan_options_default(akav_scan_options_t* opts)
+AKAV_API void akav_scan_options_default(_Out_ akav_scan_options_t* opts)
 {
     if (!opts)
         return;

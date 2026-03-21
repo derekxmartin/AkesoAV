@@ -182,8 +182,9 @@ if (-not $SkipAnalyze) {
         $analyzeOutput = & cmake --build $AnalyzeDir --config Release 2>&1
         $analyzeOutput | Out-Host
 
-        # Count /analyze warnings (C6xxx codes)
-        $warnings = $analyzeOutput | Select-String "warning C6\d{3}"
+        # Count /analyze warnings from our code only (exclude _deps/, third-party)
+        $allWarnings = $analyzeOutput | Select-String "warning C\d{4,5}"
+        $warnings = $allWarnings | Where-Object { $_.ToString() -notmatch "\\_deps\\" }
         if ($warnings.Count -gt 0) {
             Write-Fail "/analyze produced $($warnings.Count) warning(s)"
             $warnings | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
