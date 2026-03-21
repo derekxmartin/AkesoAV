@@ -71,6 +71,7 @@ dist/
 # Corpus / generated test data
 testdata/*.exe
 testdata/*.dll
+testdata/pe_corpus/
 
 # Signature databases (generated)
 *.akavdb

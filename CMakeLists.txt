@@ -103,4 +103,7 @@ if(AKAV_BUILD_FUZZ)
 
     add_executable(fuzz_scan_buffer tests/fuzz/fuzz_scan_buffer.cpp)
     target_link_libraries(fuzz_scan_buffer PRIVATE akesoav_core)
+
+    add_executable(fuzz_pe tests/fuzz/fuzz_pe.cpp)
+    target_link_libraries(fuzz_pe PRIVATE akesoav_core)
 endif()
