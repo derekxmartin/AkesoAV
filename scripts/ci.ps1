@@ -243,12 +243,14 @@ $Elapsed = (Get-Date) - $StartTime
 Write-Host ""
 Write-Host "============================================" -ForegroundColor White
 if ($StepFailed -eq 0) {
-    Write-Host "  CI PASSED — $StepCount steps, 0 failures ($([math]::Round($Elapsed.TotalSeconds))s)" -ForegroundColor Green
+    $secs = [math]::Round($Elapsed.TotalSeconds)
+    Write-Host "  CI PASSED — $StepCount steps, 0 failures (${secs}s)" -ForegroundColor Green
     # Clean up temp db
     if (Test-Path $CompiledDb) { Remove-Item $CompiledDb -Force }
     exit 0
 } else {
-    Write-Host "  CI FAILED — $StepCount steps, $StepFailed failure(s) ($([math]::Round($Elapsed.TotalSeconds))s)" -ForegroundColor Red
+    $secs = [math]::Round($Elapsed.TotalSeconds)
+    Write-Host "  CI FAILED — $StepCount steps, $StepFailed failure(s) (${secs}s)" -ForegroundColor Red
     if (Test-Path $CompiledDb) { Remove-Item $CompiledDb -Force }
     exit 1
 }
