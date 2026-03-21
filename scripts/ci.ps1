@@ -1,6 +1,6 @@
-# ci.ps1 — AkesoAV continuous integration script.
+# ci.ps1 -- AkesoAV continuous integration script.
 #
-# Orchestrates: build → unit tests → integration tests → /analyze.
+# Orchestrates: build, unit tests, integration tests, /analyze.
 # Exit code 0 = all green, non-zero = failure.
 #
 # Usage:
@@ -39,7 +39,7 @@ function Write-Fail {
     Write-Host "  FAIL: $Message" -ForegroundColor Red
 }
 
-# ── Step 1: Generate test data ─────────────────────────────────────
+# -- Step 1: Generate test data -----------------------------------------------
 
 Write-Step "Generate test data"
 $TestDataScript = Join-Path $ProjectRoot "scripts\create_testdata.ps1"
@@ -57,7 +57,7 @@ if (Test-Path $TestDataScript) {
     Write-Host "  SKIP: create_testdata.ps1 not found" -ForegroundColor Yellow
 }
 
-# ── Step 2: CMake configure ────────────────────────────────────────
+# -- Step 2: CMake configure ---------------------------------------------------
 
 Write-Step "CMake configure (Release)"
 Push-Location $ProjectRoot
@@ -73,7 +73,7 @@ try {
     Pop-Location
 }
 
-# ── Step 3: Build (Release) ────────────────────────────────────────
+# -- Step 3: Build (Release) ---------------------------------------------------
 
 Write-Step "Build (Release)"
 try {
@@ -95,7 +95,7 @@ try {
     exit 1
 }
 
-# ── Step 4: Unit tests (CTest) ─────────────────────────────────────
+# -- Step 4: Unit tests (CTest) ------------------------------------------------
 
 Write-Step "Unit tests (CTest)"
 try {
@@ -114,7 +114,7 @@ try {
     Write-Fail "Unit tests: $_"
 }
 
-# ── Step 5: Compile test signatures ────────────────────────────────
+# -- Step 5: Compile test signatures -------------------------------------------
 
 Write-Step "Compile test signatures (akavdb-tool)"
 $AkavdbTool = Join-Path $ProjectRoot "tools\akavdb-tool\akavdb_tool.py"
@@ -130,7 +130,7 @@ try {
     Write-Fail $_
 }
 
-# ── Step 6: Integration tests (pytest) ─────────────────────────────
+# -- Step 6: Integration tests (pytest) ----------------------------------------
 
 if (-not $SkipIntegration) {
     Write-Step "Integration tests (pytest)"
@@ -148,7 +148,7 @@ if (-not $SkipIntegration) {
     Write-Host "  Skipped via -SkipIntegration flag" -ForegroundColor Yellow
 }
 
-# ── Step 7: pyakav tests ──────────────────────────────────────────
+# -- Step 7: pyakav tests ------------------------------------------------------
 
 Write-Step "Python bindings tests (pytest)"
 $PyakavTests = Join-Path $ProjectRoot "bindings\python\test_pyakav.py"
@@ -165,7 +165,7 @@ if (Test-Path $PyakavTests) {
     Write-Host "  SKIP: test_pyakav.py not found" -ForegroundColor Yellow
 }
 
-# ── Step 8: MSVC /analyze ─────────────────────────────────────────
+# -- Step 8: MSVC /analyze -----------------------------------------------------
 
 if (-not $SkipAnalyze) {
     Write-Step "MSVC /analyze (static analysis)"
@@ -199,7 +199,7 @@ if (-not $SkipAnalyze) {
     Write-Host "  Skipped via -SkipAnalyze flag" -ForegroundColor Yellow
 }
 
-# ── Step 9: CLI smoke test ────────────────────────────────────────
+# -- Step 9: CLI smoke test ----------------------------------------------------
 
 Write-Step "CLI smoke test"
 $Akavscan = Join-Path $BuildDir "Release\akavscan.exe"
@@ -237,20 +237,19 @@ if ((Test-Path $Akavscan) -and (Test-Path $CompiledDb)) {
     Write-Host "  SKIP: akavscan.exe or compiled DB not available" -ForegroundColor Yellow
 }
 
-# ── Summary ───────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 
 $Elapsed = (Get-Date) - $StartTime
+$secs = [math]::Round($Elapsed.TotalSeconds)
 Write-Host ""
 Write-Host "============================================" -ForegroundColor White
 if ($StepFailed -eq 0) {
-    $secs = [math]::Round($Elapsed.TotalSeconds)
-    Write-Host "  CI PASSED — $StepCount steps, 0 failures (${secs}s)" -ForegroundColor Green
+    Write-Host "  CI PASSED -- $StepCount steps, 0 failures ($secs sec)" -ForegroundColor Green
     # Clean up temp db
     if (Test-Path $CompiledDb) { Remove-Item $CompiledDb -Force }
     exit 0
 } else {
-    $secs = [math]::Round($Elapsed.TotalSeconds)
-    Write-Host "  CI FAILED — $StepCount steps, $StepFailed failure(s) (${secs}s)" -ForegroundColor Red
+    Write-Host "  CI FAILED -- $StepCount steps, $StepFailed failure(s) ($secs sec)" -ForegroundColor Red
     if (Test-Path $CompiledDb) { Remove-Item $CompiledDb -Force }
     exit 1
 }
