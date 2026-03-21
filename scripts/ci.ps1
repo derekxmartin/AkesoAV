@@ -175,7 +175,7 @@ if (-not $SkipAnalyze) {
         # Configure a separate build with /analyze
         cmake -G "Visual Studio 17 2022" -B $AnalyzeDir `
             -DCMAKE_C_FLAGS="/analyze /analyze:external-" `
-            -DCMAKE_CXX_FLAGS="/analyze /analyze:external-" 2>&1 | Out-Host
+            -DCMAKE_CXX_FLAGS="/analyze /analyze:external- /EHsc" 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "Analyze configure failed" }
 
         # Build and capture warnings
