@@ -51,6 +51,12 @@ public:
     akav_error_t scan_archive_zip(const uint8_t* buf, size_t len,
                                   const akav_scan_options_t* opts,
                                   akav_scan_result_t* result, int depth);
+    akav_error_t scan_archive_gzip(const uint8_t* buf, size_t len,
+                                   const akav_scan_options_t* opts,
+                                   akav_scan_result_t* result, int depth);
+    akav_error_t scan_archive_tar(const uint8_t* buf, size_t len,
+                                  const akav_scan_options_t* opts,
+                                  akav_scan_result_t* result, int depth);
 
 private:
     std::atomic<bool> initialized_{false};

@@ -46,6 +46,8 @@ set(AKAV_ENGINE_SOURCES
     src/database/sigdb.cpp
     src/scanner.cpp
     src/parsers/zip.cpp
+    src/parsers/gzip.cpp
+    src/parsers/tar.cpp
 )
 
 add_library(akesoav_core STATIC ${AKAV_ENGINE_SOURCES})
@@ -98,6 +100,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_scan_pipeline.cpp
         tests/unit/test_pe.cpp
         tests/unit/test_zip.cpp
+        tests/unit/test_gzip_tar.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
