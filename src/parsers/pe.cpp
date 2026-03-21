@@ -2,6 +2,13 @@
 #include "safe_reader.h"
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
+#endif
 
 /* ── Error / warning helpers ─────────────────────────────────────── */
 
@@ -253,6 +260,8 @@ static bool parse_section_table(akav_pe_t* pe, akav_safe_reader_t* r)
         if (!akav_reader_skip(r, 12)) { pe_error(pe, "Truncated section table"); return false; }
 
         if (!akav_reader_read_u32_le(r, &sec->characteristics))  { pe_error(pe, "Truncated section table"); return false; }
+
+        sec->entropy = -1.0; /* not yet computed */
     }
 
     return true;
@@ -622,4 +631,273 @@ bool akav_pe_parse_exports(akav_pe_t* pe, const uint8_t* data, size_t data_len)
     }
 
     return true;
+}
+
+/* ── Shannon entropy ─────────────────────────────────────────────── */
+
+static double compute_shannon_entropy(const uint8_t* data, size_t len)
+{
+    if (len == 0) return 0.0;
+
+    uint32_t freq[256] = {0};
+    for (size_t i = 0; i < len; i++)
+        freq[data[i]]++;
+
+    double entropy = 0.0;
+    double dlen = (double)len;
+    for (int i = 0; i < 256; i++) {
+        if (freq[i] == 0) continue;
+        double p = (double)freq[i] / dlen;
+        entropy -= p * log2(p);
+    }
+    return entropy;
+}
+
+void akav_pe_compute_entropy(akav_pe_t* pe, const uint8_t* data, size_t data_len)
+{
+    if (!pe || !pe->valid || !data) return;
+
+    for (uint16_t i = 0; i < pe->num_sections; i++) {
+        akav_pe_section_t* sec = &pe->sections[i];
+        if (sec->raw_data_size == 0 || sec->raw_data_offset == 0) {
+            sec->entropy = -1.0;
+            continue;
+        }
+        if ((size_t)sec->raw_data_offset + sec->raw_data_size > data_len) {
+            sec->entropy = -1.0;
+            continue;
+        }
+        sec->entropy = compute_shannon_entropy(
+            data + sec->raw_data_offset, sec->raw_data_size);
+    }
+}
+
+/* ── Overlay detection ───────────────────────────────────────────── */
+
+void akav_pe_detect_overlay(akav_pe_t* pe, size_t data_len)
+{
+    if (!pe || !pe->valid) return;
+
+    pe->has_overlay = false;
+    pe->overlay_offset = 0;
+    pe->overlay_size = 0;
+
+    /* Find the end of the last section's raw data */
+    uint32_t last_end = 0;
+    for (uint16_t i = 0; i < pe->num_sections; i++) {
+        uint32_t sec_end = pe->sections[i].raw_data_offset +
+                           pe->sections[i].raw_data_size;
+        if (sec_end > last_end)
+            last_end = sec_end;
+    }
+
+    /* Also consider headers */
+    if (pe->size_of_headers > last_end)
+        last_end = pe->size_of_headers;
+
+    if (last_end > 0 && (size_t)last_end < data_len) {
+        pe->has_overlay = true;
+        pe->overlay_offset = last_end;
+        pe->overlay_size = (uint32_t)(data_len - last_end);
+    }
+}
+
+/* ── Rich header parsing + MD5 hash ──────────────────────────────── */
+
+void akav_pe_parse_rich_header(akav_pe_t* pe, const uint8_t* data, size_t data_len)
+{
+    if (!pe || !pe->valid || !data) return;
+
+    pe->has_rich_header = false;
+    memset(pe->rich_header_hash, 0, sizeof(pe->rich_header_hash));
+
+    /* Rich header sits between DOS stub and PE signature.
+     * It ends with "Rich" followed by 4-byte XOR key.
+     * Search for "Rich" between offset 0x80 and e_lfanew. */
+    if (pe->e_lfanew < 0x80 || pe->e_lfanew > data_len) return;
+
+    uint32_t search_end = pe->e_lfanew;
+    if (search_end > (uint32_t)data_len) search_end = (uint32_t)data_len;
+
+    /* Find "Rich" marker */
+    uint32_t rich_pos = 0;
+    for (uint32_t i = 0x80; i + 8 <= search_end; i += 4) {
+        if (data[i] == 'R' && data[i+1] == 'i' &&
+            data[i+2] == 'c' && data[i+3] == 'h') {
+            rich_pos = i;
+            break;
+        }
+    }
+    if (rich_pos == 0) return;
+
+    /* XOR key is the 4 bytes after "Rich" */
+    if (rich_pos + 8 > data_len) return;
+    uint32_t xor_key;
+    memcpy(&xor_key, data + rich_pos + 4, 4);
+
+    /* Find "DanS" marker (XORed with key) at the start of the Rich header.
+     * "DanS" = 0x536E6144 */
+    uint32_t dans_plain = 0x536E6144;
+    uint32_t expected = dans_plain ^ xor_key;
+    uint32_t dans_pos = 0;
+
+    for (uint32_t i = 0x80; i + 4 <= rich_pos; i += 4) {
+        uint32_t val;
+        memcpy(&val, data + i, 4);
+        if (val == expected) {
+            dans_pos = i;
+            break;
+        }
+    }
+    if (dans_pos == 0) return;
+
+    /* Decode the Rich header: XOR each DWORD with key */
+    size_t rich_len = (rich_pos + 8) - dans_pos;
+    uint8_t* decoded = (uint8_t*)malloc(rich_len);
+    if (!decoded) return;
+
+    for (size_t i = 0; i < rich_len; i += 4) {
+        uint32_t val, plain;
+        memcpy(&val, data + dans_pos + i, 4);
+        /* Don't XOR the "Rich" marker and key at the end */
+        if (dans_pos + (uint32_t)i >= rich_pos) {
+            memcpy(decoded + i, data + dans_pos + i, 4);
+        } else {
+            plain = val ^ xor_key;
+            memcpy(decoded + i, &plain, 4);
+        }
+    }
+
+    /* Hash the decoded Rich header with MD5 using CNG */
+#ifdef _WIN32
+    BCRYPT_ALG_HANDLE alg = NULL;
+    BCRYPT_HASH_HANDLE hash = NULL;
+    NTSTATUS status;
+
+    status = BCryptOpenAlgorithmProvider(&alg, BCRYPT_MD5_ALGORITHM, NULL, 0);
+    if (BCRYPT_SUCCESS(status)) {
+        status = BCryptCreateHash(alg, &hash, NULL, 0, NULL, 0, 0);
+        if (BCRYPT_SUCCESS(status)) {
+            BCryptHashData(hash, decoded, (ULONG)rich_len, 0);
+            BCryptFinishHash(hash, pe->rich_header_hash, 16, 0);
+            BCryptDestroyHash(hash);
+            pe->has_rich_header = true;
+        }
+        BCryptCloseAlgorithmProvider(alg, 0);
+    }
+#else
+    /* Non-Windows: just mark as present without hashing */
+    pe->has_rich_header = true;
+#endif
+
+    free(decoded);
+}
+
+/* ── Authenticode detection ──────────────────────────────────────── */
+
+void akav_pe_detect_authenticode(akav_pe_t* pe, size_t data_len)
+{
+    if (!pe || !pe->valid) return;
+
+    pe->has_authenticode = false;
+    pe->authenticode_offset = 0;
+    pe->authenticode_size = 0;
+
+    /* Security directory (index 4) stores a file offset, not an RVA */
+    if (pe->num_data_dirs <= AKAV_PE_DIR_SECURITY) return;
+    akav_pe_data_dir_t* sec_dir = &pe->data_dirs[AKAV_PE_DIR_SECURITY];
+    if (sec_dir->virtual_address == 0 || sec_dir->size == 0) return;
+
+    /* For the security directory, virtual_address is actually a file offset */
+    uint32_t cert_offset = sec_dir->virtual_address;
+    uint32_t cert_size = sec_dir->size;
+
+    if ((size_t)cert_offset + cert_size <= data_len && cert_size >= 8) {
+        pe->has_authenticode = true;
+        pe->authenticode_offset = cert_offset;
+        pe->authenticode_size = cert_size;
+    }
+}
+
+/* ── Resource enumeration ────────────────────────────────────────── */
+
+void akav_pe_enumerate_resources(akav_pe_t* pe, const uint8_t* data, size_t data_len)
+{
+    if (!pe || !pe->valid || !data) return;
+
+    pe->num_resource_types = 0;
+
+    if (pe->num_data_dirs <= AKAV_PE_DIR_RESOURCE) return;
+    akav_pe_data_dir_t* res_dir = &pe->data_dirs[AKAV_PE_DIR_RESOURCE];
+    if (res_dir->virtual_address == 0 || res_dir->size == 0) return;
+
+    uint32_t dir_offset = akav_pe_rva_to_offset(pe, res_dir->virtual_address);
+    if (dir_offset == 0) return;
+
+    /* IMAGE_RESOURCE_DIRECTORY: 16 bytes header
+     * Characteristics(4), TimeDateStamp(4), MajorVersion(2), MinorVersion(2),
+     * NumberOfNamedEntries(2), NumberOfIdEntries(2) */
+    akav_safe_reader_t r;
+    akav_reader_init(&r, data, data_len);
+    if (!akav_reader_seek_to(&r, dir_offset)) return;
+
+    if (!akav_reader_skip(&r, 12)) return; /* skip to entry counts */
+
+    uint16_t num_named, num_id;
+    if (!akav_reader_read_u16_le(&r, &num_named)) return;
+    if (!akav_reader_read_u16_le(&r, &num_id)) return;
+
+    uint32_t total_entries = (uint32_t)num_named + (uint32_t)num_id;
+    if (total_entries > AKAV_PE_MAX_RESOURCE_TYPES)
+        total_entries = AKAV_PE_MAX_RESOURCE_TYPES;
+
+    /* Each entry: NameOrId(4) + OffsetToData(4) = 8 bytes */
+    for (uint32_t i = 0; i < total_entries; i++) {
+        uint32_t name_or_id, offset_to_data;
+        if (!akav_reader_read_u32_le(&r, &name_or_id)) break;
+        if (!akav_reader_read_u32_le(&r, &offset_to_data)) break;
+
+        akav_pe_resource_type_t* rt = &pe->resource_types[pe->num_resource_types];
+
+        /* High bit set means it's a named entry (string), else numeric ID */
+        rt->type_id = name_or_id & 0x7FFFFFFF;
+
+        /* Count sub-entries if this points to a subdirectory */
+        if (offset_to_data & 0x80000000) {
+            uint32_t subdir_rva_off = offset_to_data & 0x7FFFFFFF;
+            uint32_t subdir_file_off = dir_offset + subdir_rva_off;
+
+            akav_safe_reader_t sr;
+            akav_reader_init(&sr, data, data_len);
+            if (akav_reader_seek_to(&sr, subdir_file_off) &&
+                akav_reader_skip(&sr, 12)) {
+                uint16_t sub_named, sub_id;
+                if (akav_reader_read_u16_le(&sr, &sub_named) &&
+                    akav_reader_read_u16_le(&sr, &sub_id)) {
+                    rt->count = (uint32_t)sub_named + (uint32_t)sub_id;
+                } else {
+                    rt->count = 0;
+                }
+            } else {
+                rt->count = 0;
+            }
+        } else {
+            rt->count = 1; /* leaf entry */
+        }
+
+        pe->num_resource_types++;
+    }
+}
+
+/* ── Convenience: run all metadata analysis ──────────────────────── */
+
+void akav_pe_analyze_metadata(akav_pe_t* pe, const uint8_t* data, size_t data_len)
+{
+    if (!pe || !pe->valid || !data) return;
+
+    akav_pe_compute_entropy(pe, data, data_len);
+    akav_pe_detect_overlay(pe, data_len);
+    akav_pe_parse_rich_header(pe, data, data_len);
+    akav_pe_detect_authenticode(pe, data_len);
+    akav_pe_enumerate_resources(pe, data, data_len);
 }

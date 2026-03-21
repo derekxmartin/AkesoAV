@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "parsers/pe.h"
 #include <cstring>
+#include <cmath>
 #include <vector>
 
 /* ── Helper: Build a minimal valid PE32 binary ───────────────────── */
@@ -670,5 +671,276 @@ TEST(PeImports, ImportFuncNamesReadable) {
             }
         }
     }
+    akav_pe_free(&pe);
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* Metadata tests (P2-T3)                                            */
+/* ══════════════════════════════════════════════════════════════════ */
+
+/* ── Shannon entropy: all zeros → 0.0 ───────────────────────────── */
+
+TEST(PeMetadata, EntropyAllZeros) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    /* .text raw data at offset 0x200, size 0x200 — all zeros by default */
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_compute_entropy(&pe, b.data(), b.size());
+
+    ASSERT_EQ(pe.num_sections, 1);
+    EXPECT_NEAR(pe.sections[0].entropy, 0.0, 0.01);
+    akav_pe_free(&pe);
+}
+
+/* ── Shannon entropy: random-ish data → high entropy ─────────────── */
+
+TEST(PeMetadata, EntropyHighForRandom) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    /* Fill .text section (offset 0x200, 0x200 bytes) with pseudo-random */
+    auto& raw = b.raw();
+    for (size_t i = 0x200; i < 0x400; i++)
+        raw[i] = (uint8_t)((i * 131 + 17) & 0xFF);
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_compute_entropy(&pe, b.data(), b.size());
+
+    EXPECT_GT(pe.sections[0].entropy, 6.0);
+    EXPECT_LE(pe.sections[0].entropy, 8.0);
+    akav_pe_free(&pe);
+}
+
+/* ── Shannon entropy: single byte value → 0.0 ───────────────────── */
+
+TEST(PeMetadata, EntropyUniformByte) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    auto& raw = b.raw();
+    for (size_t i = 0x200; i < 0x400; i++)
+        raw[i] = 0xAA;
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_compute_entropy(&pe, b.data(), b.size());
+
+    EXPECT_NEAR(pe.sections[0].entropy, 0.0, 0.01);
+    akav_pe_free(&pe);
+}
+
+/* ── Entropy on real kernel32.dll ────────────────────────────────── */
+
+TEST(PeMetadata, EntropyKernel32) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    akav_pe_compute_entropy(&pe, buf.data(), buf.size());
+
+    /* .text section should have medium-high entropy (code) */
+    const akav_pe_section_t* text = akav_pe_find_section(&pe, ".text");
+    if (text) {
+        EXPECT_GT(text->entropy, 4.0);
+        EXPECT_LE(text->entropy, 8.0);
+    }
+    akav_pe_free(&pe);
+}
+
+/* ── Overlay detection: no overlay in synthetic PE ───────────────── */
+
+TEST(PeMetadata, NoOverlayInSyntheticPE) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+
+    /* Our builder has 1024 bytes, .text ends at 0x200 + 0x200 = 0x400 = 1024 */
+    akav_pe_detect_overlay(&pe, b.size());
+    EXPECT_FALSE(pe.has_overlay);
+    akav_pe_free(&pe);
+}
+
+/* ── Overlay detection: extra bytes after last section ───────────── */
+
+TEST(PeMetadata, OverlayDetected) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    /* Append overlay data */
+    auto& raw = b.raw();
+    for (int i = 0; i < 256; i++)
+        raw.push_back((uint8_t)i);
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_detect_overlay(&pe, b.size());
+
+    EXPECT_TRUE(pe.has_overlay);
+    EXPECT_EQ(pe.overlay_offset, 1024u);
+    EXPECT_EQ(pe.overlay_size, 256u);
+    akav_pe_free(&pe);
+}
+
+/* ── Authenticode: kernel32.dll is signed ────────────────────────── */
+
+TEST(PeMetadata, AuthenticodeKernel32) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    akav_pe_detect_authenticode(&pe, buf.size());
+
+    EXPECT_TRUE(pe.has_authenticode);
+    EXPECT_GT(pe.authenticode_size, 0u);
+    akav_pe_free(&pe);
+}
+
+/* ── Authenticode: synthetic PE has no cert ───────────────────────── */
+
+TEST(PeMetadata, NoAuthenticodeInSyntheticPE) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_detect_authenticode(&pe, b.size());
+
+    EXPECT_FALSE(pe.has_authenticode);
+    akav_pe_free(&pe);
+}
+
+/* ── Rich header: kernel32.dll should have one ───────────────────── */
+
+TEST(PeMetadata, RichHeaderKernel32) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    akav_pe_parse_rich_header(&pe, buf.data(), buf.size());
+
+    EXPECT_TRUE(pe.has_rich_header);
+
+    /* Hash should be non-zero */
+    bool all_zero = true;
+    for (int i = 0; i < 16; i++) {
+        if (pe.rich_header_hash[i] != 0) { all_zero = false; break; }
+    }
+    EXPECT_FALSE(all_zero);
+    akav_pe_free(&pe);
+}
+
+/* ── Rich header: synthetic PE has none ──────────────────────────── */
+
+TEST(PeMetadata, NoRichHeaderInSyntheticPE) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_parse_rich_header(&pe, b.data(), b.size());
+
+    EXPECT_FALSE(pe.has_rich_header);
+    akav_pe_free(&pe);
+}
+
+/* ── Resources: kernel32.dll should have resource types ──────────── */
+
+TEST(PeMetadata, ResourcesKernel32) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    akav_pe_enumerate_resources(&pe, buf.data(), buf.size());
+
+    EXPECT_GT(pe.num_resource_types, 0u);
+
+    /* kernel32 typically has RT_STRING(6), RT_VERSION(16), etc. */
+    bool found_version = false;
+    for (uint32_t i = 0; i < pe.num_resource_types; i++) {
+        if (pe.resource_types[i].type_id == 16) /* RT_VERSION */
+            found_version = true;
+    }
+    EXPECT_TRUE(found_version);
+    akav_pe_free(&pe);
+}
+
+/* ── Resources: synthetic PE has none ────────────────────────────── */
+
+TEST(PeMetadata, NoResourcesInSyntheticPE) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+    akav_pe_enumerate_resources(&pe, b.data(), b.size());
+
+    EXPECT_EQ(pe.num_resource_types, 0u);
+    akav_pe_free(&pe);
+}
+
+/* ── Full metadata analysis convenience function ─────────────────── */
+
+TEST(PeMetadata, AnalyzeMetadataKernel32) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    akav_pe_analyze_metadata(&pe, buf.data(), buf.size());
+
+    /* All metadata should be populated */
+    const akav_pe_section_t* text = akav_pe_find_section(&pe, ".text");
+    if (text) {
+        EXPECT_GE(text->entropy, 0.0);
+    }
+    EXPECT_TRUE(pe.has_authenticode);
+    EXPECT_TRUE(pe.has_rich_header);
+    EXPECT_GT(pe.num_resource_types, 0u);
+    akav_pe_free(&pe);
+}
+
+/* ── Null/invalid inputs don't crash ─────────────────────────────── */
+
+TEST(PeMetadata, NullSafety) {
+    akav_pe_t pe;
+    memset(&pe, 0, sizeof(pe));
+
+    /* All metadata functions should handle null/invalid gracefully */
+    akav_pe_compute_entropy(nullptr, nullptr, 0);
+    akav_pe_detect_overlay(nullptr, 0);
+    akav_pe_parse_rich_header(nullptr, nullptr, 0);
+    akav_pe_detect_authenticode(nullptr, 0);
+    akav_pe_enumerate_resources(nullptr, nullptr, 0);
+    akav_pe_analyze_metadata(nullptr, nullptr, 0);
+
+    /* With zeroed pe (not valid) */
+    akav_pe_compute_entropy(&pe, (const uint8_t*)"x", 1);
+    akav_pe_detect_overlay(&pe, 100);
+    akav_pe_parse_rich_header(&pe, (const uint8_t*)"x", 1);
+    akav_pe_detect_authenticode(&pe, 100);
+    akav_pe_enumerate_resources(&pe, (const uint8_t*)"x", 1);
+    akav_pe_analyze_metadata(&pe, (const uint8_t*)"x", 1);
+}
+
+/* ── Entropy not computed before calling compute ─────────────────── */
+
+TEST(PeMetadata, EntropyDefaultMinusOne) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+
+    /* Before compute_entropy, should be -1 */
+    EXPECT_EQ(pe.sections[0].entropy, -1.0);
     akav_pe_free(&pe);
 }
