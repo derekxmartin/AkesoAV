@@ -32,6 +32,7 @@ set(AKAV_ENGINE_SOURCES
     src/engine_shims.cpp
     src/file_type.cpp
     src/parsers/safe_reader.cpp
+    src/parsers/pe.cpp
     src/signatures/bloom.cpp
     src/signatures/hash_matcher.cpp
     src/signatures/crc_matcher.cpp
@@ -81,6 +82,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_aho_corasick.cpp
         tests/unit/test_sigdb.cpp
         tests/unit/test_scan_pipeline.cpp
+        tests/unit/test_pe.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
