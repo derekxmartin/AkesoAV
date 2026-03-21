@@ -55,7 +55,7 @@ set(AKAV_ENGINE_SOURCES
     src/parsers/tar.cpp
 )
 
-add_library(akesoav_core STATIC ${AKAV_ENGINE_SOURCES})
+add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
 target_include_directories(akesoav_core
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
@@ -72,7 +72,7 @@ target_include_directories(akesoav_core
 add_library(akesoav SHARED src/dll_main.cpp)
 target_link_libraries(akesoav PRIVATE akesoav_core)
 target_compile_options(akesoav PRIVATE ${AKAV_WARNING_FLAGS})
-set_target_properties(akesoav PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+set_target_properties(akesoav PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 # ── akavscan.exe (CLI scanner) ──
 add_executable(akavscan src/cli/akavscan.c)
