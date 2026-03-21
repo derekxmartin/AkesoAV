@@ -1,0 +1,254 @@
+# ci.ps1 — AkesoAV continuous integration script.
+#
+# Orchestrates: build → unit tests → integration tests → /analyze.
+# Exit code 0 = all green, non-zero = failure.
+#
+# Usage:
+#     .\scripts\ci.ps1                    # Full pipeline
+#     .\scripts\ci.ps1 -SkipAnalyze       # Skip /analyze (faster)
+#     .\scripts\ci.ps1 -SkipIntegration   # Skip integration tests
+
+param(
+    [switch]$SkipAnalyze,
+    [switch]$SkipIntegration
+)
+
+$ErrorActionPreference = "Stop"
+$ProjectRoot = (Get-Item $PSScriptRoot).Parent.FullName
+$BuildDir = Join-Path $ProjectRoot "build"
+
+$StartTime = Get-Date
+$StepCount = 0
+$StepFailed = 0
+
+function Write-Step {
+    param([string]$Message)
+    $script:StepCount++
+    Write-Host ""
+    Write-Host "=== [$script:StepCount] $Message ===" -ForegroundColor Cyan
+}
+
+function Write-Pass {
+    param([string]$Message)
+    Write-Host "  PASS: $Message" -ForegroundColor Green
+}
+
+function Write-Fail {
+    param([string]$Message)
+    $script:StepFailed++
+    Write-Host "  FAIL: $Message" -ForegroundColor Red
+}
+
+# ── Step 1: Generate test data ─────────────────────────────────────
+
+Write-Step "Generate test data"
+$TestDataScript = Join-Path $ProjectRoot "scripts\create_testdata.ps1"
+if (Test-Path $TestDataScript) {
+    Push-Location $ProjectRoot
+    try {
+        & $TestDataScript
+        Write-Pass "Test data generated"
+    } catch {
+        Write-Fail "Test data generation failed: $_"
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Host "  SKIP: create_testdata.ps1 not found" -ForegroundColor Yellow
+}
+
+# ── Step 2: CMake configure ────────────────────────────────────────
+
+Write-Step "CMake configure (Release)"
+Push-Location $ProjectRoot
+try {
+    cmake -G "Visual Studio 17 2022" -B $BuildDir 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+    Write-Pass "CMake configure succeeded"
+} catch {
+    Write-Fail $_
+    Write-Host "Cannot continue without build configuration." -ForegroundColor Red
+    exit 1
+} finally {
+    Pop-Location
+}
+
+# ── Step 3: Build (Release) ────────────────────────────────────────
+
+Write-Step "Build (Release)"
+try {
+    cmake --build $BuildDir --config Release 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+
+    # Verify key outputs exist
+    $Dll = Join-Path $BuildDir "Release\akesoav.dll"
+    $Exe = Join-Path $BuildDir "Release\akavscan.exe"
+    $Tests = Join-Path $BuildDir "Release\akesoav_tests.exe"
+    if (-not (Test-Path $Dll))   { throw "akesoav.dll not produced" }
+    if (-not (Test-Path $Exe))   { throw "akavscan.exe not produced" }
+    if (-not (Test-Path $Tests)) { throw "akesoav_tests.exe not produced" }
+
+    Write-Pass "Build produced akesoav.dll, akavscan.exe, akesoav_tests.exe"
+} catch {
+    Write-Fail $_
+    Write-Host "Cannot continue without a successful build." -ForegroundColor Red
+    exit 1
+}
+
+# ── Step 4: Unit tests (CTest) ─────────────────────────────────────
+
+Write-Step "Unit tests (CTest)"
+try {
+    $ctestOutput = & ctest --test-dir $BuildDir --build-config Release --output-on-failure 2>&1
+    $ctestOutput | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "CTest reported failures" }
+
+    # Extract pass count
+    $passLine = $ctestOutput | Select-String "tests passed"
+    if ($passLine) {
+        Write-Pass $passLine.Line.Trim()
+    } else {
+        Write-Pass "CTest completed successfully"
+    }
+} catch {
+    Write-Fail "Unit tests: $_"
+}
+
+# ── Step 5: Compile test signatures ────────────────────────────────
+
+Write-Step "Compile test signatures (akavdb-tool)"
+$AkavdbTool = Join-Path $ProjectRoot "tools\akavdb-tool\akavdb_tool.py"
+$SigsJson = Join-Path $ProjectRoot "tools\akavdb-tool\test_sigs.json"
+$CompiledDb = Join-Path $ProjectRoot "testdata\ci_test.akavdb"
+try {
+    python $AkavdbTool compile $SigsJson -o $CompiledDb 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "akavdb-tool compile failed" }
+    if (-not (Test-Path $CompiledDb)) { throw "Compiled .akavdb not created" }
+    $dbSize = (Get-Item $CompiledDb).Length
+    Write-Pass "Compiled $dbSize-byte signature database"
+} catch {
+    Write-Fail $_
+}
+
+# ── Step 6: Integration tests (pytest) ─────────────────────────────
+
+if (-not $SkipIntegration) {
+    Write-Step "Integration tests (pytest)"
+    $IntegrationDir = Join-Path $ProjectRoot "tests\integration"
+    try {
+        $pytestOutput = & python -m pytest $IntegrationDir -v --tb=short 2>&1
+        $pytestOutput | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "pytest reported failures" }
+        Write-Pass "Integration tests passed"
+    } catch {
+        Write-Fail "Integration tests: $_"
+    }
+} else {
+    Write-Step "Integration tests (SKIPPED)"
+    Write-Host "  Skipped via -SkipIntegration flag" -ForegroundColor Yellow
+}
+
+# ── Step 7: pyakav tests ──────────────────────────────────────────
+
+Write-Step "Python bindings tests (pytest)"
+$PyakavTests = Join-Path $ProjectRoot "bindings\python\test_pyakav.py"
+if (Test-Path $PyakavTests) {
+    try {
+        $pytestOutput = & python -m pytest $PyakavTests -v --tb=short 2>&1
+        $pytestOutput | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "pyakav tests failed" }
+        Write-Pass "pyakav tests passed"
+    } catch {
+        Write-Fail "pyakav tests: $_"
+    }
+} else {
+    Write-Host "  SKIP: test_pyakav.py not found" -ForegroundColor Yellow
+}
+
+# ── Step 8: MSVC /analyze ─────────────────────────────────────────
+
+if (-not $SkipAnalyze) {
+    Write-Step "MSVC /analyze (static analysis)"
+
+    $AnalyzeDir = Join-Path $ProjectRoot "build-analyze"
+    try {
+        # Configure a separate build with /analyze
+        cmake -G "Visual Studio 17 2022" -B $AnalyzeDir `
+            -DCMAKE_C_FLAGS="/analyze /analyze:external-" `
+            -DCMAKE_CXX_FLAGS="/analyze /analyze:external-" 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Analyze configure failed" }
+
+        # Build and capture warnings
+        $analyzeOutput = & cmake --build $AnalyzeDir --config Release 2>&1
+        $analyzeOutput | Out-Host
+
+        # Count /analyze warnings (C6xxx codes)
+        $warnings = $analyzeOutput | Select-String "warning C6\d{3}"
+        if ($warnings.Count -gt 0) {
+            Write-Fail "/analyze produced $($warnings.Count) warning(s)"
+            $warnings | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        } else {
+            if ($LASTEXITCODE -ne 0) { throw "Analyze build failed" }
+            Write-Pass "Zero /analyze warnings"
+        }
+    } catch {
+        Write-Fail "Static analysis: $_"
+    }
+} else {
+    Write-Step "MSVC /analyze (SKIPPED)"
+    Write-Host "  Skipped via -SkipAnalyze flag" -ForegroundColor Yellow
+}
+
+# ── Step 9: CLI smoke test ────────────────────────────────────────
+
+Write-Step "CLI smoke test"
+$Akavscan = Join-Path $BuildDir "Release\akavscan.exe"
+$Eicar = Join-Path $ProjectRoot "testdata\eicar.com.txt"
+$Clean = Join-Path $ProjectRoot "testdata\clean.txt"
+
+if ((Test-Path $Akavscan) -and (Test-Path $CompiledDb)) {
+    # Test EICAR detection
+    & $Akavscan --db $CompiledDb $Eicar 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 1) {
+        Write-Pass "akavscan detected EICAR (exit 1)"
+    } else {
+        Write-Fail "akavscan EICAR: expected exit 1, got $LASTEXITCODE"
+    }
+
+    # Test clean file
+    if (Test-Path $Clean) {
+        & $Akavscan --db $CompiledDb $Clean 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Pass "akavscan clean file (exit 0)"
+        } else {
+            Write-Fail "akavscan clean file: expected exit 0, got $LASTEXITCODE"
+        }
+    }
+
+    # Test JSON output
+    $jsonOut = & $Akavscan --db $CompiledDb -j $Eicar 2>&1
+    try {
+        $null = $jsonOut | ConvertFrom-Json
+        Write-Pass "akavscan -j produces valid JSON"
+    } catch {
+        Write-Fail "akavscan -j output is not valid JSON"
+    }
+} else {
+    Write-Host "  SKIP: akavscan.exe or compiled DB not available" -ForegroundColor Yellow
+}
+
+# ── Summary ───────────────────────────────────────────────────────
+
+$Elapsed = (Get-Date) - $StartTime
+Write-Host ""
+Write-Host "============================================" -ForegroundColor White
+if ($StepFailed -eq 0) {
+    Write-Host "  CI PASSED — $StepCount steps, 0 failures ($([math]::Round($Elapsed.TotalSeconds))s)" -ForegroundColor Green
+    # Clean up temp db
+    if (Test-Path $CompiledDb) { Remove-Item $CompiledDb -Force }
+    exit 0
+} else {
+    Write-Host "  CI FAILED — $StepCount steps, $StepFailed failure(s) ($([math]::Round($Elapsed.TotalSeconds))s)" -ForegroundColor Red
+    if (Test-Path $CompiledDb) { Remove-Item $CompiledDb -Force }
+    exit 1
+}
