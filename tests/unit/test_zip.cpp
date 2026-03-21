@@ -494,6 +494,252 @@ TEST(ZipParser, TruncatedZip) {
 }
 
 /* ══════════════════════════════════════════════════════════════════ */
+/* Adversarial parser tests                                           */
+/* ══════════════════════════════════════════════════════════════════ */
+
+/* ── Max files limit (10K entries) ───────────────────────────────── */
+
+TEST(ZipParser, MaxFilesLimitEnforced) {
+    /* Build a ZIP with > AKAV_ZIP_MAX_FILES entries.
+     * To avoid a multi-GB archive, craft raw bytes: each entry is
+     * a local file header with 0-byte stored payload. */
+    std::vector<uint8_t> zip;
+    uint32_t count = AKAV_ZIP_MAX_FILES + 1;
+
+    for (uint32_t i = 0; i < count; i++) {
+        char fname[16];
+        snprintf(fname, sizeof(fname), "%u.txt", i);
+        uint16_t fname_len = (uint16_t)strlen(fname);
+
+        write_u32(zip, 0x04034B50);    /* local file sig */
+        write_u16(zip, 20);             /* version needed */
+        write_u16(zip, 0);              /* flags */
+        write_u16(zip, 0);              /* stored */
+        write_u16(zip, 0);              /* mod time */
+        write_u16(zip, 0);              /* mod date */
+        write_u32(zip, 0);              /* crc32 */
+        write_u32(zip, 0);              /* comp size */
+        write_u32(zip, 0);              /* uncomp size */
+        write_u16(zip, fname_len);      /* filename len */
+        write_u16(zip, 0);              /* extra len */
+        zip.insert(zip.end(), fname, fname + fname_len);
+    }
+    /* Terminate with end-of-central-dir so parser stops cleanly */
+    write_u32(zip, 0x06054B50);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u32(zip, 0); write_u32(zip, 0);
+    write_u16(zip, 0);
+
+    akav_zip_context_t ctx;
+    akav_zip_init(&ctx, 0);
+
+    int extracted = 0;
+    bool ok = akav_zip_extract(&ctx, zip.data(), zip.size(),
+        [](const char*, const uint8_t*, size_t, int, void* ud) -> bool {
+            (*(int*)ud)++;
+            return true;
+        }, &extracted);
+
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(ctx.num_entries, (uint32_t)AKAV_ZIP_MAX_FILES);
+    EXPECT_STREQ(ctx.error, "Maximum file count exceeded");
+}
+
+/* ── Cumulative size bomb: many small entries summing > 100MB ─────── */
+
+TEST(ZipParser, CumulativeSizeBomb) {
+    /* 200 entries each claiming 1MB uncompressed (stored, 0 bytes actual).
+     * To avoid allocating 200MB of real data, we craft headers that claim
+     * large uncompressed sizes. The parser checks cumulative totals before
+     * decompression, so it should reject once cumulative > 100MB. */
+    std::vector<uint8_t> zip;
+    uint32_t entry_uncomp = 1024 * 1024;  /* 1 MB */
+    uint32_t num_entries = 150;            /* 150 MB total */
+
+    /* Build a 1MB block of data for stored entries */
+    std::vector<uint8_t> payload(entry_uncomp, 'A');
+    uint32_t crc = (uint32_t)crc32(0L, payload.data(), (uInt)payload.size());
+
+    for (uint32_t i = 0; i < num_entries; i++) {
+        char fname[16];
+        snprintf(fname, sizeof(fname), "%u.bin", i);
+        uint16_t fname_len = (uint16_t)strlen(fname);
+
+        write_u32(zip, 0x04034B50);
+        write_u16(zip, 20);
+        write_u16(zip, 0);              /* flags */
+        write_u16(zip, 0);              /* stored */
+        write_u16(zip, 0);              /* mod time */
+        write_u16(zip, 0);              /* mod date */
+        write_u32(zip, crc);
+        write_u32(zip, entry_uncomp);   /* comp size = uncomp (stored) */
+        write_u32(zip, entry_uncomp);   /* uncomp size */
+        write_u16(zip, fname_len);
+        write_u16(zip, 0);
+        zip.insert(zip.end(), fname, fname + fname_len);
+        zip.insert(zip.end(), payload.begin(), payload.end());
+    }
+    /* EOCD */
+    write_u32(zip, 0x06054B50);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u32(zip, 0); write_u32(zip, 0);
+    write_u16(zip, 0);
+
+    akav_zip_context_t ctx;
+    akav_zip_init(&ctx, 0);
+
+    int extracted = 0;
+    bool ok = akav_zip_extract(&ctx, zip.data(), zip.size(),
+        [](const char*, const uint8_t*, size_t, int, void* ud) -> bool {
+            (*(int*)ud)++;
+            return true;
+        }, &extracted);
+
+    EXPECT_FALSE(ok);
+    EXPECT_TRUE(ctx.bomb_detected);
+    /* Should have extracted ~100 entries (100MB) before tripping the limit */
+    EXPECT_LE(extracted, 100);
+    EXPECT_GE(extracted, 99); /* 100th entry pushes cumulative past 100MB */
+}
+
+/* ── Corrupt deflate stream: no crash ────────────────────────────── */
+
+TEST(ZipParser, CorruptDeflateNoCrash) {
+    /* Build a ZIP entry that claims deflate but has random garbage data */
+    std::vector<uint8_t> zip;
+    const char* fname = "corrupt.bin";
+    uint16_t fname_len = (uint16_t)strlen(fname);
+
+    /* 128 bytes of random-ish garbage as "compressed" data */
+    std::vector<uint8_t> garbage(128);
+    for (size_t i = 0; i < garbage.size(); i++)
+        garbage[i] = (uint8_t)(i * 37 + 13);
+
+    write_u32(zip, 0x04034B50);
+    write_u16(zip, 20);
+    write_u16(zip, 0);              /* flags */
+    write_u16(zip, 8);              /* DEFLATE */
+    write_u16(zip, 0);              /* mod time */
+    write_u16(zip, 0);              /* mod date */
+    write_u32(zip, 0x12345678);     /* fake crc */
+    write_u32(zip, (uint32_t)garbage.size()); /* comp size */
+    write_u32(zip, 256);            /* claim 256 bytes uncompressed */
+    write_u16(zip, fname_len);
+    write_u16(zip, 0);
+    zip.insert(zip.end(), fname, fname + fname_len);
+    zip.insert(zip.end(), garbage.begin(), garbage.end());
+
+    /* EOCD */
+    write_u32(zip, 0x06054B50);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u32(zip, 0); write_u32(zip, 0);
+    write_u16(zip, 0);
+
+    akav_zip_context_t ctx;
+    akav_zip_init(&ctx, 0);
+
+    int extracted = 0;
+    bool ok = akav_zip_extract(&ctx, zip.data(), zip.size(),
+        [](const char*, const uint8_t*, size_t, int, void* ud) -> bool {
+            (*(int*)ud)++;
+            return true;
+        }, &extracted);
+
+    /* Corrupt entry is skipped (non-fatal), extraction succeeds */
+    EXPECT_TRUE(ok);
+    EXPECT_EQ(extracted, 0); /* callback not invoked for corrupt entry */
+    EXPECT_EQ(ctx.num_entries, 1u); /* entry counted even if decompression fails */
+}
+
+/* ── Huge filename: truncated to AKAV_ZIP_MAX_FILENAME, no overflow ─ */
+
+TEST(ZipParser, HugeFilenameTruncated) {
+    /* Build a ZIP entry with a 2000-byte filename (> AKAV_ZIP_MAX_FILENAME=512) */
+    std::vector<uint8_t> zip;
+    std::string long_name(2000, 'A');
+    uint16_t fname_len = (uint16_t)long_name.size();
+    std::vector<uint8_t> payload = {'X'};
+    uint32_t crc = (uint32_t)crc32(0L, payload.data(), (uInt)payload.size());
+
+    write_u32(zip, 0x04034B50);
+    write_u16(zip, 20);
+    write_u16(zip, 0);
+    write_u16(zip, 0);              /* stored */
+    write_u16(zip, 0);
+    write_u16(zip, 0);
+    write_u32(zip, crc);
+    write_u32(zip, 1);              /* comp size */
+    write_u32(zip, 1);              /* uncomp size */
+    write_u16(zip, fname_len);
+    write_u16(zip, 0);
+    zip.insert(zip.end(), long_name.begin(), long_name.end());
+    zip.insert(zip.end(), payload.begin(), payload.end());
+
+    /* EOCD */
+    write_u32(zip, 0x06054B50);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u16(zip, 0); write_u16(zip, 0);
+    write_u32(zip, 0); write_u32(zip, 0);
+    write_u16(zip, 0);
+
+    akav_zip_context_t ctx;
+    akav_zip_init(&ctx, 0);
+
+    std::string received_name;
+    bool ok = akav_zip_extract(&ctx, zip.data(), zip.size(),
+        [](const char* fn, const uint8_t* data, size_t len, int, void* ud) -> bool {
+            auto* name = (std::string*)ud;
+            *name = fn;
+            EXPECT_EQ(len, 1u);
+            EXPECT_EQ(data[0], 'X');
+            return true;
+        }, &received_name);
+
+    EXPECT_TRUE(ok);
+    EXPECT_EQ(ctx.num_entries, 1u);
+    /* Filename should be truncated to AKAV_ZIP_MAX_FILENAME - 1 */
+    EXPECT_EQ(received_name.size(), (size_t)(AKAV_ZIP_MAX_FILENAME - 1));
+    /* All characters should be 'A' (truncated, not corrupted) */
+    EXPECT_TRUE(received_name.find_first_not_of('A') == std::string::npos);
+}
+
+/* ── Quine recursion: ZIP containing a copy of itself ────────────── */
+
+TEST_F(ZipScanMd5OnlyTest, QuineRecursionDepthLimited) {
+    /* Create a ZIP, then embed it inside itself (simulated quine).
+     * Build: inner.zip contains dummy data. outer.zip contains inner.zip.
+     * Then overwrite inner.zip's content with outer.zip's bytes.
+     * The result: a ZIP whose only entry is itself → infinite recursion.
+     * The depth limit must stop this. */
+
+    /* Step 1: Build a small placeholder ZIP */
+    auto placeholder = build_zip({{"x.txt", {'X'}, false}});
+
+    /* Step 2: Build the "quine" — a ZIP whose entry IS the outer ZIP.
+     * Since we can't truly self-reference, build several nesting levels
+     * to a depth exceeding max_scan_depth. */
+    std::vector<uint8_t> current = build_zip({{"harmless.txt", {'H'}, false}});
+    for (int i = 0; i < 20; i++) {
+        current = build_zip({{"self.zip", current, false}});
+    }
+
+    akav_scan_result_t result;
+    akav_scan_options_t opts;
+    akav_scan_options_default(&opts);
+    opts.max_scan_depth = 5;
+
+    akav_error_t err = akav_scan_buffer(engine, current.data(), current.size(),
+                                         "quine.zip", &opts, &result);
+    /* Should complete without hanging or crashing */
+    EXPECT_EQ(err, AKAV_OK);
+    /* No malware in this archive */
+    EXPECT_EQ(result.found, 0);
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
 /* Engine integration tests (EICAR in ZIP)                            */
 /* ══════════════════════════════════════════════════════════════════ */
 

@@ -30,6 +30,7 @@ typedef struct
     int heuristic_level;/* --heur-level 0-3 */
     int64_t max_filesize;/* --max-size */
     int timeout_ms;     /* --timeout */
+    const char* db_path;/* --db */
     int file_count;
     const char* files[256];
 } cli_options_t;
@@ -52,7 +53,8 @@ static void print_usage(void)
         "  --no-heuristics     Disable heuristic engine\n"
         "  --heur-level N      Heuristic level 0-3 (default 2=medium)\n"
         "  --max-size N        Max file size in bytes (0=no limit)\n"
-        "  --timeout N         Per-file timeout in ms (default 30000)\n",
+        "  --timeout N         Per-file timeout in ms (default 30000)\n"
+        "  --db PATH           Path to .akavdb signature database\n",
         akav_engine_version());
 }
 
@@ -92,6 +94,8 @@ static int parse_args(int argc, char* argv[], cli_options_t* opts)
             opts->max_filesize = _atoi64(argv[++i]);
         else if (strcmp(argv[i], "--timeout") == 0 && i + 1 < argc)
             opts->timeout_ms = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--db") == 0 && i + 1 < argc)
+            opts->db_path = argv[++i];
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
@@ -178,10 +182,13 @@ static void print_result_text(const char* path, const akav_scan_result_t* r, int
         printf("%s: DETECTED %s [%s/%s]\n", path, r->malware_name,
                r->scanner_id, r->signature_id);
     }
-    else if (verbose)
+    else
     {
-        printf("%s: clean (%s, %lld bytes, %dms)\n", path, r->file_type,
-               (long long)r->total_size, r->scan_time_ms);
+        if (verbose)
+            printf("%s: clean (%s, %lld bytes, %dms)\n", path, r->file_type,
+                   (long long)r->total_size, r->scan_time_ms);
+        else
+            printf("%s: clean\n", path);
     }
 
     if (verbose && r->warning_count > 0)
@@ -252,6 +259,21 @@ int main(int argc, char* argv[])
         fprintf(stderr, "Failed to init engine: %s\n", akav_strerror(err));
         akav_engine_destroy(engine);
         return 2;
+    }
+
+    /* Load signature database if specified */
+    if (opts.db_path)
+    {
+        err = akav_engine_load_signatures(engine, opts.db_path);
+        if (err != AKAV_OK)
+        {
+            fprintf(stderr, "Failed to load signatures from %s: %s\n",
+                    opts.db_path, akav_strerror(err));
+            akav_engine_destroy(engine);
+            return 2;
+        }
+        if (opts.verbose)
+            printf("Loaded signatures: %s\n", akav_db_version(engine));
     }
 
     /* --eicar-test: self-test with EICAR string */
