@@ -1,6 +1,7 @@
 #include "engine_internal.h"
 #include "file_type.h"
 #include "parsers/safe_reader.h"
+#include "parsers/zip.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -96,8 +97,116 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
         akav_scanner_scan_buffer(&scanner_, buf, len, result);
     }
 
+    /* If not yet detected and archive scanning is enabled, recurse into archives */
+    if (!result->found && opts->scan_archives && ftype == AKAV_FILETYPE_ZIP)
+    {
+        akav_error_t zip_err = scan_archive_zip(buf, len, opts, result, 0);
+        if (zip_err == AKAV_ERROR_BOMB)
+        {
+            auto end = std::chrono::steady_clock::now();
+            result->scan_time_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            return AKAV_ERROR_BOMB;
+        }
+    }
+
     auto end = std::chrono::steady_clock::now();
     result->scan_time_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    return AKAV_OK;
+}
+
+/* ── ZIP archive recursive scanning ──────────────────────────────── */
+
+struct zip_scan_ctx {
+    akav::Engine*              engine;
+    const akav_scan_options_t* opts;
+    akav_scan_result_t*        result;
+    int                        depth;
+    bool                       bomb;
+};
+
+static bool zip_entry_callback(const char* filename, const uint8_t* data,
+                                size_t data_len, int depth, void* user_data)
+{
+    auto* ctx = (zip_scan_ctx*)user_data;
+    (void)filename;
+
+    /* Scan the extracted entry through the signature pipeline */
+    akav_scan_result_t entry_result;
+    memset(&entry_result, 0, sizeof(entry_result));
+
+    if (ctx->engine->is_initialized()) {
+        /* Run signature scan on the entry (archives disabled — we handle
+         * nested ZIP recursion explicitly below with proper depth tracking) */
+        akav_scan_options_t entry_opts = *ctx->opts;
+        entry_opts.scan_archives = 0;
+        akav_error_t err = ctx->engine->scan_buffer(
+            data, data_len, filename, &entry_opts, &entry_result);
+
+        if (err == AKAV_ERROR_BOMB) {
+            ctx->bomb = true;
+            return false; /* Stop extraction */
+        }
+
+        if (entry_result.found) {
+            /* Propagate detection to parent result */
+            ctx->result->found = 1;
+            memcpy(ctx->result->malware_name, entry_result.malware_name,
+                   sizeof(ctx->result->malware_name));
+            memcpy(ctx->result->signature_id, entry_result.signature_id,
+                   sizeof(ctx->result->signature_id));
+            memcpy(ctx->result->scanner_id, entry_result.scanner_id,
+                   sizeof(ctx->result->scanner_id));
+            return false; /* Stop: malware found */
+        }
+
+        /* Check if this entry is itself a ZIP (nested) */
+        akav_file_type_t inner_type = akav_detect_file_type(data, data_len);
+        if (inner_type == AKAV_FILETYPE_ZIP && ctx->opts->scan_archives) {
+            akav_error_t zip_err = ctx->engine->scan_archive_zip(
+                data, data_len, ctx->opts, ctx->result, depth);
+            if (zip_err == AKAV_ERROR_BOMB) {
+                ctx->bomb = true;
+                return false;
+            }
+            if (ctx->result->found)
+                return false;
+        }
+    }
+
+    return true; /* Continue extraction */
+}
+
+akav_error_t Engine::scan_archive_zip(const uint8_t* buf, size_t len,
+                                       const akav_scan_options_t* opts,
+                                       akav_scan_result_t* result, int depth)
+{
+    if (depth >= opts->max_scan_depth)
+        return AKAV_OK; /* Depth limit reached — stop silently */
+
+    akav_zip_context_t zip_ctx;
+    akav_zip_init(&zip_ctx, depth);
+
+    zip_scan_ctx scan_ctx;
+    scan_ctx.engine = this;
+    scan_ctx.opts = opts;
+    scan_ctx.result = result;
+    scan_ctx.depth = depth;
+    scan_ctx.bomb = false;
+
+    bool ok = akav_zip_extract(&zip_ctx, buf, len, zip_entry_callback, &scan_ctx);
+
+    if (scan_ctx.bomb || zip_ctx.bomb_detected)
+        return AKAV_ERROR_BOMB;
+
+    if (!ok && !result->found) {
+        /* Extraction failed but not due to bomb — add warning */
+        if (result->warning_count < AKAV_MAX_WARNINGS) {
+            strncpy_s(result->warnings[result->warning_count],
+                      AKAV_MAX_WARNING_LEN, zip_ctx.error, _TRUNCATE);
+            result->warning_count++;
+        }
+    }
 
     return AKAV_OK;
 }

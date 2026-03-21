@@ -11,16 +11,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(AKAV_BUILD_TESTS "Build unit tests" ON)
 option(AKAV_BUILD_FUZZ "Build fuzz targets (requires clang-cl)" OFF)
 
-# ── Compiler warnings ──
+# ── Compiler warnings (applied per-target to avoid affecting fetched deps) ──
 if(MSVC)
-    add_compile_options(/W4 /WX)
-    if(NOT AKAV_BUILD_FUZZ)
-        # /analyze can be enabled per-target or globally; enable globally for CI
-        # add_compile_options(/analyze)
-    endif()
+    set(AKAV_WARNING_FLAGS /W4 /WX)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-Wall -Wextra -Werror)
+    set(AKAV_WARNING_FLAGS -Wall -Wextra -Werror)
 endif()
+
+# ── zlib (for ZIP decompression) ──
+include(FetchContent)
+FetchContent_Declare(
+    zlib
+    GIT_REPOSITORY https://github.com/madler/zlib.git
+    GIT_TAG        v1.3.1
+)
+set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(zlib)
 
 # ── Windows libraries ──
 set(AKAV_WIN_LIBS bcrypt.lib crypt32.lib wintrust.lib)
@@ -39,6 +45,7 @@ set(AKAV_ENGINE_SOURCES
     src/signatures/aho_corasick.cpp
     src/database/sigdb.cpp
     src/scanner.cpp
+    src/parsers/zip.cpp
 )
 
 add_library(akesoav_core STATIC ${AKAV_ENGINE_SOURCES})
@@ -46,17 +53,24 @@ target_include_directories(akesoav_core
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src>
 )
+target_compile_options(akesoav_core PRIVATE ${AKAV_WARNING_FLAGS})
 target_compile_definitions(akesoav_core PUBLIC AKAV_BUILD_DLL)
-target_link_libraries(akesoav_core PUBLIC ${AKAV_WIN_LIBS})
+target_link_libraries(akesoav_core PUBLIC ${AKAV_WIN_LIBS} zlibstatic)
+target_include_directories(akesoav_core
+    PUBLIC  $<BUILD_INTERFACE:${zlib_BINARY_DIR}>
+    PUBLIC  $<BUILD_INTERFACE:${zlib_SOURCE_DIR}>
+)
 
 # ── akesoav.dll (core engine DLL) ──
 add_library(akesoav SHARED src/dll_main.cpp)
 target_link_libraries(akesoav PRIVATE akesoav_core)
+target_compile_options(akesoav PRIVATE ${AKAV_WARNING_FLAGS})
 set_target_properties(akesoav PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
 # ── akavscan.exe (CLI scanner) ──
 add_executable(akavscan src/cli/akavscan.c)
 target_link_libraries(akavscan PRIVATE akesoav_core)
+target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
 
 # ── Tests ──
 if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
@@ -83,12 +97,14 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_sigdb.cpp
         tests/unit/test_scan_pipeline.cpp
         tests/unit/test_pe.cpp
+        tests/unit/test_zip.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
         akesoav_core
         GTest::gtest_main
     )
+    target_compile_options(akesoav_tests PRIVATE ${AKAV_WARNING_FLAGS})
 
     include(GoogleTest)
     gtest_discover_tests(akesoav_tests
