@@ -1,5 +1,6 @@
 #include "pe.h"
 #include "safe_reader.h"
+#include <stdlib.h>
 #include <string.h>
 
 /* ── Error / warning helpers ─────────────────────────────────────── */
@@ -316,4 +317,309 @@ uint32_t akav_pe_rva_to_offset(const akav_pe_t* pe, uint32_t rva)
         }
     }
     return 0;
+}
+
+void akav_pe_free(akav_pe_t* pe)
+{
+    if (!pe) return;
+    free(pe->import_dlls);
+    free(pe->import_funcs);
+    free(pe->export_funcs);
+    pe->import_dlls = NULL;
+    pe->import_funcs = NULL;
+    pe->export_funcs = NULL;
+    pe->num_import_dlls = 0;
+    pe->num_import_funcs = 0;
+    pe->num_export_funcs = 0;
+}
+
+/* ── Helper: read a null-terminated string at a file offset ──────── */
+
+static bool read_string_at(const uint8_t* data, size_t data_len,
+                            uint32_t offset, char* out, size_t out_size)
+{
+    if (offset >= data_len || out_size == 0) return false;
+
+    size_t max_len = data_len - offset;
+    if (max_len > out_size - 1) max_len = out_size - 1;
+
+    size_t i = 0;
+    while (i < max_len && data[offset + i] != '\0') {
+        out[i] = (char)data[offset + i];
+        i++;
+    }
+    out[i] = '\0';
+    return i > 0;
+}
+
+/* ── Parse imports ───────────────────────────────────────────────── */
+
+bool akav_pe_parse_imports(akav_pe_t* pe, const uint8_t* data, size_t data_len)
+{
+    if (!pe || !pe->valid || !data) return false;
+
+    /* Check import directory exists */
+    if (pe->num_data_dirs <= AKAV_PE_DIR_IMPORT) return false;
+    akav_pe_data_dir_t* imp_dir = &pe->data_dirs[AKAV_PE_DIR_IMPORT];
+    if (imp_dir->virtual_address == 0 || imp_dir->size == 0) return false;
+
+    uint32_t imp_offset = akav_pe_rva_to_offset(pe, imp_dir->virtual_address);
+    if (imp_offset == 0) {
+        pe_warn(pe, "Import directory RVA does not map to file");
+        return false;
+    }
+
+    /* First pass: count import descriptors (20 bytes each, null-terminated) */
+    akav_safe_reader_t r;
+    akav_reader_init(&r, data, data_len);
+
+    uint32_t dll_count = 0;
+    {
+        akav_safe_reader_t cnt = r;
+        if (!akav_reader_seek_to(&cnt, imp_offset)) return false;
+
+        while (dll_count < AKAV_PE_MAX_IMPORTS) {
+            uint32_t ilt_rva, ts, fchain, name_rva, iat_rva;
+            if (!akav_reader_read_u32_le(&cnt, &ilt_rva))   break;
+            if (!akav_reader_read_u32_le(&cnt, &ts))        break;
+            if (!akav_reader_read_u32_le(&cnt, &fchain))    break;
+            if (!akav_reader_read_u32_le(&cnt, &name_rva))  break;
+            if (!akav_reader_read_u32_le(&cnt, &iat_rva))   break;
+
+            /* Null descriptor terminates the list */
+            if (ilt_rva == 0 && name_rva == 0 && iat_rva == 0) break;
+            dll_count++;
+        }
+    }
+
+    if (dll_count == 0) return false;
+
+    /* Allocate import DLL array */
+    pe->import_dlls = (akav_pe_import_dll_t*)calloc(
+        dll_count, sizeof(akav_pe_import_dll_t));
+    if (!pe->import_dlls) return false;
+
+    /* Temporary: collect all functions, then allocate */
+    /* Estimate max functions and allocate upfront */
+    akav_pe_import_func_t* funcs = (akav_pe_import_func_t*)calloc(
+        AKAV_PE_MAX_FUNCTIONS, sizeof(akav_pe_import_func_t));
+    if (!funcs) { free(pe->import_dlls); pe->import_dlls = NULL; return false; }
+
+    uint32_t total_funcs = 0;
+    uint32_t ordinal_only = 0;
+
+    if (!akav_reader_seek_to(&r, imp_offset)) {
+        free(funcs); free(pe->import_dlls); pe->import_dlls = NULL;
+        return false;
+    }
+
+    bool is64 = pe->is_pe32plus;
+    uint64_t ordinal_flag = is64 ? 0x8000000000000000ULL : 0x80000000ULL;
+
+    for (uint32_t d = 0; d < dll_count; d++) {
+        uint32_t ilt_rva, ts, fchain, name_rva, iat_rva;
+        if (!akav_reader_read_u32_le(&r, &ilt_rva))   break;
+        if (!akav_reader_read_u32_le(&r, &ts))        break;
+        if (!akav_reader_read_u32_le(&r, &fchain))    break;
+        if (!akav_reader_read_u32_le(&r, &name_rva))  break;
+        if (!akav_reader_read_u32_le(&r, &iat_rva))   break;
+
+        akav_pe_import_dll_t* dll = &pe->import_dlls[d];
+        dll->first_func_index = total_funcs;
+        dll->num_functions = 0;
+
+        /* Read DLL name */
+        uint32_t name_off = akav_pe_rva_to_offset(pe, name_rva);
+        if (name_off > 0) {
+            read_string_at(data, data_len, name_off,
+                           dll->dll_name, sizeof(dll->dll_name));
+        } else {
+            strncpy_s(dll->dll_name, sizeof(dll->dll_name), "<invalid>", _TRUNCATE);
+        }
+
+        /* Walk the ILT (or IAT if ILT is zero) */
+        uint32_t thunk_rva = (ilt_rva != 0) ? ilt_rva : iat_rva;
+        uint32_t thunk_off = akav_pe_rva_to_offset(pe, thunk_rva);
+        if (thunk_off == 0) continue;
+
+        akav_safe_reader_t thunk_r;
+        akav_reader_init(&thunk_r, data, data_len);
+        if (!akav_reader_seek_to(&thunk_r, thunk_off)) continue;
+
+        while (total_funcs < AKAV_PE_MAX_FUNCTIONS) {
+            uint64_t thunk_data;
+            if (is64) {
+                if (!akav_reader_read_u64_le(&thunk_r, &thunk_data)) break;
+            } else {
+                uint32_t t32;
+                if (!akav_reader_read_u32_le(&thunk_r, &t32)) break;
+                thunk_data = t32;
+            }
+
+            if (thunk_data == 0) break; /* end of thunk list */
+
+            akav_pe_import_func_t* func = &funcs[total_funcs];
+
+            if (thunk_data & ordinal_flag) {
+                /* Import by ordinal */
+                func->is_ordinal = true;
+                func->ordinal = (uint16_t)(thunk_data & 0xFFFF);
+                func->name[0] = '\0';
+                ordinal_only++;
+            } else {
+                /* Import by name: thunk_data is RVA to hint/name table entry */
+                uint32_t hint_off = akav_pe_rva_to_offset(pe, (uint32_t)thunk_data);
+                if (hint_off > 0 && hint_off + 2 < data_len) {
+                    /* Hint (2 bytes) + name string */
+                    func->ordinal = (uint16_t)(data[hint_off] | (data[hint_off + 1] << 8));
+                    func->is_ordinal = false;
+                    read_string_at(data, data_len, hint_off + 2,
+                                   func->name, sizeof(func->name));
+                } else {
+                    func->is_ordinal = true;
+                    func->ordinal = 0;
+                }
+            }
+
+            total_funcs++;
+            dll->num_functions++;
+        }
+    }
+
+    pe->num_import_dlls = dll_count;
+    pe->ordinal_only_count = ordinal_only;
+
+    /* Shrink function array to actual size */
+    if (total_funcs > 0) {
+        akav_pe_import_func_t* trimmed = (akav_pe_import_func_t*)realloc(
+            funcs, total_funcs * sizeof(akav_pe_import_func_t));
+        pe->import_funcs = trimmed ? trimmed : funcs;
+    } else {
+        free(funcs);
+        pe->import_funcs = NULL;
+    }
+    pe->num_import_funcs = total_funcs;
+
+    return true;
+}
+
+/* ── Parse exports ───────────────────────────────────────────────── */
+
+bool akav_pe_parse_exports(akav_pe_t* pe, const uint8_t* data, size_t data_len)
+{
+    if (!pe || !pe->valid || !data) return false;
+
+    if (pe->num_data_dirs <= AKAV_PE_DIR_EXPORT) return false;
+    akav_pe_data_dir_t* exp_dir = &pe->data_dirs[AKAV_PE_DIR_EXPORT];
+    if (exp_dir->virtual_address == 0 || exp_dir->size == 0) return false;
+
+    uint32_t dir_offset = akav_pe_rva_to_offset(pe, exp_dir->virtual_address);
+    if (dir_offset == 0) {
+        pe_warn(pe, "Export directory RVA does not map to file");
+        return false;
+    }
+
+    akav_safe_reader_t r;
+    akav_reader_init(&r, data, data_len);
+    if (!akav_reader_seek_to(&r, dir_offset)) return false;
+
+    /* Export directory table (40 bytes) */
+    uint32_t export_flags, ts, name_rva;
+    uint16_t major_ver, minor_ver;
+    uint32_t num_functions, num_names;
+    uint32_t addr_table_rva, name_table_rva, ordinal_table_rva;
+    uint16_t ordinal_base;
+
+    if (!akav_reader_read_u32_le(&r, &export_flags)) return false;
+    if (!akav_reader_read_u32_le(&r, &ts))           return false;
+    if (!akav_reader_read_u16_le(&r, &major_ver))    return false;
+    if (!akav_reader_read_u16_le(&r, &minor_ver))    return false;
+    if (!akav_reader_read_u32_le(&r, &name_rva))     return false;
+
+    uint32_t ordbase32;
+    if (!akav_reader_read_u32_le(&r, &ordbase32))    return false;
+    ordinal_base = (uint16_t)ordbase32;
+
+    if (!akav_reader_read_u32_le(&r, &num_functions))     return false;
+    if (!akav_reader_read_u32_le(&r, &num_names))         return false;
+    if (!akav_reader_read_u32_le(&r, &addr_table_rva))    return false;
+    if (!akav_reader_read_u32_le(&r, &name_table_rva))    return false;
+    if (!akav_reader_read_u32_le(&r, &ordinal_table_rva)) return false;
+
+    /* Populate export dir info */
+    pe->export_dir.ordinal_base = ordinal_base;
+    pe->export_dir.num_functions = num_functions;
+    pe->export_dir.num_names = num_names;
+
+    uint32_t name_off = akav_pe_rva_to_offset(pe, name_rva);
+    if (name_off > 0) {
+        read_string_at(data, data_len, name_off,
+                       pe->export_dir.dll_name, sizeof(pe->export_dir.dll_name));
+    }
+
+    /* Cap to prevent excessive allocation */
+    if (num_functions > AKAV_PE_MAX_EXPORTS) num_functions = AKAV_PE_MAX_EXPORTS;
+    if (num_names > num_functions) num_names = num_functions;
+
+    if (num_functions == 0) return true;
+
+    pe->export_funcs = (akav_pe_export_func_t*)calloc(
+        num_functions, sizeof(akav_pe_export_func_t));
+    if (!pe->export_funcs) return false;
+    pe->num_export_funcs = num_functions;
+
+    /* Read address table (array of RVAs) */
+    uint32_t addr_off = akav_pe_rva_to_offset(pe, addr_table_rva);
+    if (addr_off > 0) {
+        akav_safe_reader_t ar;
+        akav_reader_init(&ar, data, data_len);
+        if (akav_reader_seek_to(&ar, addr_off)) {
+            /* Export directory bounds for forwarder detection */
+            uint32_t exp_start = exp_dir->virtual_address;
+            uint32_t exp_end = exp_start + exp_dir->size;
+
+            for (uint32_t i = 0; i < num_functions; i++) {
+                uint32_t func_rva;
+                if (!akav_reader_read_u32_le(&ar, &func_rva)) break;
+                pe->export_funcs[i].rva = func_rva;
+                pe->export_funcs[i].ordinal = ordinal_base + (uint16_t)i;
+
+                /* Check if this is a forwarder (RVA points inside export dir) */
+                if (func_rva >= exp_start && func_rva < exp_end) {
+                    pe->export_funcs[i].is_forwarder = true;
+                }
+            }
+        }
+    }
+
+    /* Read name pointer table + ordinal table to associate names */
+    uint32_t npt_off = akav_pe_rva_to_offset(pe, name_table_rva);
+    uint32_t ot_off = akav_pe_rva_to_offset(pe, ordinal_table_rva);
+
+    if (npt_off > 0 && ot_off > 0) {
+        akav_safe_reader_t nr, or2;
+        akav_reader_init(&nr, data, data_len);
+        akav_reader_init(&or2, data, data_len);
+
+        if (akav_reader_seek_to(&nr, npt_off) &&
+            akav_reader_seek_to(&or2, ot_off)) {
+            for (uint32_t i = 0; i < num_names; i++) {
+                uint32_t fname_rva;
+                uint16_t ordinal_idx;
+                if (!akav_reader_read_u32_le(&nr, &fname_rva))  break;
+                if (!akav_reader_read_u16_le(&or2, &ordinal_idx)) break;
+
+                if (ordinal_idx < num_functions) {
+                    uint32_t fname_off = akav_pe_rva_to_offset(pe, fname_rva);
+                    if (fname_off > 0) {
+                        read_string_at(data, data_len, fname_off,
+                                       pe->export_funcs[ordinal_idx].name,
+                                       sizeof(pe->export_funcs[ordinal_idx].name));
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
 }

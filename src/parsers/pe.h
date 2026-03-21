@@ -19,6 +19,10 @@ extern "C" {
 #define AKAV_PE_MAX_SECTIONS     96       /* sanity limit */
 #define AKAV_PE_MAX_DATA_DIRS    16       /* IMAGE_NUMBEROF_DIRECTORY_ENTRIES */
 #define AKAV_PE_SECTION_NAME_LEN 8
+#define AKAV_PE_MAX_IMPORTS      256      /* max imported DLLs */
+#define AKAV_PE_MAX_FUNCTIONS    4096     /* max total imported functions */
+#define AKAV_PE_MAX_EXPORTS      4096     /* max exported functions */
+#define AKAV_PE_MAX_NAME_LEN     256      /* max DLL/function name length */
 
 /* ── Machine types ───────────────────────────────────────────────── */
 
@@ -69,6 +73,38 @@ typedef struct {
     uint32_t raw_data_offset;
     uint32_t characteristics;
 } akav_pe_section_t;
+
+/* ── Import structures ────────────────────────────────────────────── */
+
+typedef struct {
+    char     name[AKAV_PE_MAX_NAME_LEN];  /* function name (empty if ordinal-only) */
+    uint16_t ordinal;                      /* ordinal number */
+    bool     is_ordinal;                   /* true if import-by-ordinal */
+} akav_pe_import_func_t;
+
+typedef struct {
+    char     dll_name[AKAV_PE_MAX_NAME_LEN];
+    uint32_t num_functions;
+    uint32_t first_func_index;  /* index into pe->import_funcs[] */
+} akav_pe_import_dll_t;
+
+/* ── Export structures ───────────────────────────────────────────── */
+
+typedef struct {
+    char     name[AKAV_PE_MAX_NAME_LEN];  /* function name (empty if ordinal-only) */
+    uint16_t ordinal;
+    uint32_t rva;                          /* function RVA */
+    bool     is_forwarder;                 /* true if forwarded export */
+} akav_pe_export_func_t;
+
+typedef struct {
+    char     dll_name[AKAV_PE_MAX_NAME_LEN]; /* export DLL name */
+    uint32_t num_functions;
+    uint32_t num_names;
+    uint16_t ordinal_base;
+} akav_pe_export_dir_t;
+
+/* ── Parsed PE ───────────────────────────────────────────────────── */
 
 typedef struct {
     /* DOS header */
@@ -122,6 +158,18 @@ typedef struct {
     /* Section table */
     akav_pe_section_t  sections[AKAV_PE_MAX_SECTIONS];
 
+    /* Imports */
+    akav_pe_import_dll_t*  import_dlls;       /* heap-allocated */
+    uint32_t               num_import_dlls;
+    akav_pe_import_func_t* import_funcs;      /* heap-allocated */
+    uint32_t               num_import_funcs;
+    uint32_t               ordinal_only_count; /* imports by ordinal (no name) */
+
+    /* Exports */
+    akav_pe_export_dir_t   export_dir;
+    akav_pe_export_func_t* export_funcs;      /* heap-allocated */
+    uint32_t               num_export_funcs;
+
     /* Parse status */
     bool     valid;
     char     error[128];
@@ -140,6 +188,27 @@ typedef struct {
  * notes about non-critical issues.
  */
 bool akav_pe_parse(akav_pe_t* pe, const uint8_t* data, size_t data_len);
+
+/**
+ * Free heap-allocated import/export data.
+ * Safe to call on a zeroed or partially-parsed pe.
+ */
+void akav_pe_free(akav_pe_t* pe);
+
+/**
+ * Parse imports from the PE import directory.
+ * Requires a valid akav_pe_t from akav_pe_parse.
+ * Populates pe->import_dlls, pe->import_funcs, pe->num_import_dlls, etc.
+ * Returns true if at least some imports were parsed (false if no import dir).
+ */
+bool akav_pe_parse_imports(akav_pe_t* pe, const uint8_t* data, size_t data_len);
+
+/**
+ * Parse exports from the PE export directory.
+ * Populates pe->export_dir and pe->export_funcs.
+ * Returns true if exports were parsed.
+ */
+bool akav_pe_parse_exports(akav_pe_t* pe, const uint8_t* data, size_t data_len);
 
 /**
  * Return a human-readable string for the machine type.

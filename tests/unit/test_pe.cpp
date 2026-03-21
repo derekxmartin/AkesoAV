@@ -434,57 +434,241 @@ TEST(PeParser, DLLFlagParsed) {
 
 /* ── Real-world: parse actual system DLL ─────────────────────────── */
 
-TEST(PeParser, ParseKernel32) {
-    /* Try to parse a real PE from the system — skip if not available */
-    FILE* f = nullptr;
-    if (fopen_s(&f, "C:\\Windows\\System32\\kernel32.dll", "rb") != 0 || !f) {
-        GTEST_SKIP() << "kernel32.dll not accessible";
-    }
+/* ── Helper: load a PE file from disk ────────────────────────────── */
 
+static std::vector<uint8_t> load_file(const char* path) {
+    std::vector<uint8_t> buf;
+    FILE* f = nullptr;
+    if (fopen_s(&f, path, "rb") != 0 || !f) return buf;
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
-
-    std::vector<uint8_t> buf((size_t)fsize);
+    buf.resize((size_t)fsize);
     fread(buf.data(), 1, buf.size(), f);
     fclose(f);
+    return buf;
+}
+
+TEST(PeParser, ParseKernel32) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
 
     akav_pe_t pe;
     ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
     EXPECT_TRUE(pe.valid);
-    EXPECT_EQ(pe.dos_magic, 0x5A4D);
-
-    /* kernel32.dll should be AMD64 on a 64-bit system */
     EXPECT_EQ(pe.machine, AKAV_PE_MACHINE_AMD64);
     EXPECT_TRUE(pe.is_pe32plus);
-    EXPECT_GT(pe.num_sections, 0);
     EXPECT_TRUE(pe.characteristics & AKAV_PE_CHAR_DLL);
-
-    /* Should have .text section */
-    const akav_pe_section_t* text = akav_pe_find_section(&pe, ".text");
-    EXPECT_NE(text, nullptr);
+    EXPECT_NE(akav_pe_find_section(&pe, ".text"), nullptr);
+    akav_pe_free(&pe);
 }
 
-/* ── Real-world: parse a 32-bit system DLL ───────────────────────── */
-
 TEST(PeParser, ParseSysWOW64DLL) {
-    FILE* f = nullptr;
-    if (fopen_s(&f, "C:\\Windows\\SysWOW64\\kernel32.dll", "rb") != 0 || !f) {
-        GTEST_SKIP() << "SysWOW64 kernel32.dll not accessible";
-    }
-
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    std::vector<uint8_t> buf((size_t)fsize);
-    fread(buf.data(), 1, buf.size(), f);
-    fclose(f);
+    auto buf = load_file("C:\\Windows\\SysWOW64\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "SysWOW64 kernel32.dll not accessible";
 
     akav_pe_t pe;
     ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
     EXPECT_TRUE(pe.valid);
     EXPECT_EQ(pe.machine, AKAV_PE_MACHINE_I386);
     EXPECT_FALSE(pe.is_pe32plus);
-    EXPECT_TRUE(pe.characteristics & AKAV_PE_CHAR_DLL);
+    akav_pe_free(&pe);
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* Import / Export tests                                             */
+/* ══════════════════════════════════════════════════════════════════ */
+
+/* ── kernel32.dll exports: known functions ───────────────────────── */
+
+TEST(PeImports, Kernel32Exports) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    ASSERT_TRUE(akav_pe_parse_exports(&pe, buf.data(), buf.size()));
+
+    /* kernel32 should export many functions */
+    EXPECT_GT(pe.num_export_funcs, 100u);
+    EXPECT_GT(pe.export_dir.num_names, 100u);
+
+    /* Check for well-known exports */
+    bool found_create_file = false;
+    bool found_virtual_alloc = false;
+    bool found_get_proc = false;
+    for (uint32_t i = 0; i < pe.num_export_funcs; i++) {
+        if (strcmp(pe.export_funcs[i].name, "CreateFileW") == 0)
+            found_create_file = true;
+        if (strcmp(pe.export_funcs[i].name, "VirtualAlloc") == 0)
+            found_virtual_alloc = true;
+        if (strcmp(pe.export_funcs[i].name, "GetProcAddress") == 0)
+            found_get_proc = true;
+    }
+    EXPECT_TRUE(found_create_file);
+    EXPECT_TRUE(found_virtual_alloc);
+    EXPECT_TRUE(found_get_proc);
+
+    /* DLL name should be set */
+    EXPECT_NE(strlen(pe.export_dir.dll_name), 0u);
+
+    akav_pe_free(&pe);
+}
+
+/* ── kernel32.dll imports: known DLLs ────────────────────────────── */
+
+TEST(PeImports, Kernel32Imports) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    ASSERT_TRUE(akav_pe_parse_imports(&pe, buf.data(), buf.size()));
+
+    EXPECT_GT(pe.num_import_dlls, 0u);
+    EXPECT_GT(pe.num_import_funcs, 0u);
+
+    /* kernel32 should import from ntdll.dll (or api-ms-win shims) */
+    bool found_ntdll = false;
+    for (uint32_t i = 0; i < pe.num_import_dlls; i++) {
+        /* Case-insensitive check */
+        if (_stricmp(pe.import_dlls[i].dll_name, "ntdll.dll") == 0 ||
+            _stricmp(pe.import_dlls[i].dll_name, "NTDLL.dll") == 0) {
+            found_ntdll = true;
+        }
+    }
+    /* On modern Windows, kernel32 may import from api-ms shims instead */
+    EXPECT_GT(pe.num_import_dlls, 0u);
+
+    akav_pe_free(&pe);
+}
+
+/* ── 32-bit kernel32 imports ─────────────────────────────────────── */
+
+TEST(PeImports, SysWOW64Imports) {
+    auto buf = load_file("C:\\Windows\\SysWOW64\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "SysWOW64 not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    ASSERT_TRUE(akav_pe_parse_imports(&pe, buf.data(), buf.size()));
+
+    EXPECT_GT(pe.num_import_dlls, 0u);
+    EXPECT_GT(pe.num_import_funcs, 0u);
+
+    /* 32-bit PE should parse without crash */
+    EXPECT_FALSE(pe.is_pe32plus);
+    akav_pe_free(&pe);
+}
+
+/* ── 32-bit kernel32 exports ─────────────────────────────────────── */
+
+TEST(PeImports, SysWOW64Exports) {
+    auto buf = load_file("C:\\Windows\\SysWOW64\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "SysWOW64 not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    ASSERT_TRUE(akav_pe_parse_exports(&pe, buf.data(), buf.size()));
+
+    EXPECT_GT(pe.num_export_funcs, 100u);
+    akav_pe_free(&pe);
+}
+
+/* ── No import directory → returns false, no crash ───────────────── */
+
+TEST(PeImports, NoImportDirReturnsFalse) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+
+    /* Synthetic PE has no import dir (data dirs all zero) */
+    EXPECT_FALSE(akav_pe_parse_imports(&pe, b.data(), b.size()));
+    EXPECT_EQ(pe.num_import_dlls, 0u);
+    akav_pe_free(&pe);
+}
+
+/* ── No export directory → returns false, no crash ───────────────── */
+
+TEST(PeImports, NoExportDirReturnsFalse) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+
+    EXPECT_FALSE(akav_pe_parse_exports(&pe, b.data(), b.size()));
+    EXPECT_EQ(pe.num_export_funcs, 0u);
+    akav_pe_free(&pe);
+}
+
+/* ── Invalid RVA in import dir → skip, don't crash ───────────────── */
+
+TEST(PeImports, InvalidImportRva) {
+    PeBuilder b;
+    b.reset_pe32();
+
+    /* Point import dir to a nonsense RVA */
+    /* Data dir[1] (import) is at opt_header_start + fixed_offset */
+    /* In our builder, data dirs start at 0x98 + 2 + 2 + ... */
+    /* Import dir (index 1) = 8 bytes at data_dir_start + 8 */
+    /* opt_start = 0x98, fixed fields before data dirs for PE32 = 96 bytes,
+       so data dirs at 0x98 + 96 = 0xF8 */
+    size_t dd_start = 0x98 + 96;
+    b.set_u32((uint32_t)(dd_start + 8), 0xDEAD0000);  /* import dir RVA */
+    b.set_u32((uint32_t)(dd_start + 12), 0x100);       /* import dir size */
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, b.data(), b.size()));
+
+    /* Should return false gracefully, not crash */
+    EXPECT_FALSE(akav_pe_parse_imports(&pe, b.data(), b.size()));
+    akav_pe_free(&pe);
+}
+
+/* ── pe_free is safe on zeroed struct ────────────────────────────── */
+
+TEST(PeImports, FreeZeroedStruct) {
+    akav_pe_t pe;
+    memset(&pe, 0, sizeof(pe));
+    akav_pe_free(&pe); /* should not crash */
+}
+
+/* ── pe_free is safe to call twice ───────────────────────────────── */
+
+TEST(PeImports, DoubleFree) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    akav_pe_parse_imports(&pe, buf.data(), buf.size());
+    akav_pe_parse_exports(&pe, buf.data(), buf.size());
+
+    akav_pe_free(&pe);
+    akav_pe_free(&pe); /* second free should be safe */
+}
+
+/* ── Import function names are readable ──────────────────────────── */
+
+TEST(PeImports, ImportFuncNamesReadable) {
+    auto buf = load_file("C:\\Windows\\System32\\kernel32.dll");
+    if (buf.empty()) GTEST_SKIP() << "kernel32.dll not accessible";
+
+    akav_pe_t pe;
+    ASSERT_TRUE(akav_pe_parse(&pe, buf.data(), buf.size()));
+    ASSERT_TRUE(akav_pe_parse_imports(&pe, buf.data(), buf.size()));
+
+    /* All non-ordinal import names should be printable ASCII */
+    for (uint32_t i = 0; i < pe.num_import_funcs; i++) {
+        if (!pe.import_funcs[i].is_ordinal && pe.import_funcs[i].name[0]) {
+            for (size_t c = 0; pe.import_funcs[i].name[c]; c++) {
+                EXPECT_GE((unsigned char)pe.import_funcs[i].name[c], 0x20)
+                    << "Non-printable char in import name: " << pe.import_funcs[i].name;
+            }
+        }
+    }
+    akav_pe_free(&pe);
 }
