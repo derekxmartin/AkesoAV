@@ -125,4 +125,10 @@ if(AKAV_BUILD_FUZZ)
 
     add_executable(fuzz_pe tests/fuzz/fuzz_pe.cpp)
     target_link_libraries(fuzz_pe PRIVATE akesoav_core)
+
+    add_executable(fuzz_zip tests/fuzz/fuzz_zip.cpp)
+    target_link_libraries(fuzz_zip PRIVATE akesoav_core)
+
+    add_executable(fuzz_gzip tests/fuzz/fuzz_gzip.cpp)
+    target_link_libraries(fuzz_gzip PRIVATE akesoav_core)
 endif()
