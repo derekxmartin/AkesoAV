@@ -78,8 +78,10 @@ testdata/pe_corpus/
 *.akavdb.new
 *.akavdb.prev
 
-# Quarantine vault
-Quarantine/
+# Quarantine vault (runtime data, not source code)
+**/Quarantine/vault/
+**/Quarantine/quarantine.db
+**/Quarantine/key.dpapi
 
 # Logs
 *.jsonl
