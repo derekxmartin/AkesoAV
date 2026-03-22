@@ -4,6 +4,7 @@
 #include "akesoav.h"
 #include "scanner.h"
 #include "scan_cache.h"
+#include "whitelist.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -67,6 +68,7 @@ private:
     akav_scanner_t scanner_{};
     bool scanner_loaded_{false};
     std::unique_ptr<ScanCache> cache_;
+    std::unique_ptr<Whitelist> whitelist_;
 };
 
 } /* namespace akav */
