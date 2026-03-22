@@ -64,6 +64,7 @@ set(AKAV_ENGINE_SOURCES
     src/signatures/hash_matcher.cpp
     src/signatures/crc_matcher.cpp
     src/signatures/aho_corasick.cpp
+    src/signatures/fuzzy_hash.cpp
     src/database/sigdb.cpp
     src/scanner.cpp
     src/parsers/zip.cpp
@@ -179,6 +180,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_quarantine.cpp
         tests/unit/test_siem.cpp
         tests/unit/test_scheduler.cpp
+        tests/unit/test_fuzzy_hash.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

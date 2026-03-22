@@ -13,6 +13,7 @@ void akav_scanner_init(akav_scanner_t* scanner)
     memset(scanner, 0, sizeof(*scanner));
     akav_hash_matcher_init(&scanner->hash_matcher);
     akav_crc_matcher_init(&scanner->crc_matcher);
+    akav_fuzzy_matcher_init(&scanner->fuzzy_matcher);
 }
 
 void akav_scanner_destroy(akav_scanner_t* scanner)
@@ -24,6 +25,7 @@ void akav_scanner_destroy(akav_scanner_t* scanner)
         scanner->ac = NULL;
     }
 
+    akav_fuzzy_matcher_destroy(&scanner->fuzzy_matcher);
     akav_crc_matcher_destroy(&scanner->crc_matcher);
     akav_hash_matcher_destroy(&scanner->hash_matcher);
 
@@ -131,6 +133,33 @@ static akav_error_t load_sections(akav_scanner_t* scanner)
                     }
                     scanner->crc_loaded = akav_crc_matcher_build(
                         &scanner->crc_matcher, entries, crc_count, false);
+                    free(entries);
+                }
+            }
+        }
+    }
+
+    /* Fuzzy hash -- manually parse packed entries (132 bytes each on disk) */
+    const akav_db_section_entry_t* fuzzy_sec =
+        akav_sigdb_find_section(db, AKAV_SECTION_FUZZY_HASH);
+    if (fuzzy_sec && fuzzy_sec->entry_count > 0) {
+        const uint8_t* fuzzy_data = akav_sigdb_section_data(db, fuzzy_sec);
+        if (fuzzy_data) {
+            uint32_t fuzzy_count = fuzzy_sec->entry_count;
+            const size_t PACKED_FUZZY_SIZE = AKAV_FUZZY_HASH_MAX + 4; /* 128 + 4 */
+
+            if ((size_t)fuzzy_count * PACKED_FUZZY_SIZE <= fuzzy_sec->size) {
+                akav_fuzzy_entry_t* entries = (akav_fuzzy_entry_t*)malloc(
+                    fuzzy_count * sizeof(akav_fuzzy_entry_t));
+                if (entries) {
+                    for (uint32_t i = 0; i < fuzzy_count; i++) {
+                        const uint8_t* p = fuzzy_data + i * PACKED_FUZZY_SIZE;
+                        memcpy(entries[i].hash, p, AKAV_FUZZY_HASH_MAX);
+                        entries[i].hash[AKAV_FUZZY_HASH_MAX - 1] = '\0';
+                        memcpy(&entries[i].name_index, p + AKAV_FUZZY_HASH_MAX, 4);
+                    }
+                    scanner->fuzzy_loaded = akav_fuzzy_matcher_build(
+                        &scanner->fuzzy_matcher, entries, fuzzy_count, 80);
                     free(entries);
                 }
             }
@@ -305,7 +334,30 @@ void akav_scanner_scan_buffer(const akav_scanner_t* scanner,
         }
     }
 
-    /* ── Stage 5: Aho-Corasick byte-stream ───────────────────────── */
+    /* ── Stage 5: Fuzzy hash match ──────────────────────────────── */
+    if (scanner->fuzzy_loaded && data && data_len > 0) {
+        akav_fuzzy_match_t fmatch;
+        uint32_t fcount = akav_fuzzy_matcher_scan(&scanner->fuzzy_matcher,
+            data, data_len, &fmatch, 1);
+        if (fcount > 0) {
+            const char* name = akav_scanner_lookup_name(scanner, fmatch.name_index);
+            result->found = 1;
+            strncpy_s(result->malware_name, sizeof(result->malware_name),
+                      name, _TRUNCATE);
+
+            char sig_id[AKAV_MAX_SIG_ID];
+            snprintf(sig_id, sizeof(sig_id), "fuzzy-%d-%u",
+                     fmatch.similarity, fmatch.entry_index);
+            strncpy_s(result->signature_id, sizeof(result->signature_id),
+                      sig_id, _TRUNCATE);
+            strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                      "fuzzy_hash", _TRUNCATE);
+            result->heuristic_score = (double)fmatch.similarity;
+            return; /* short-circuit */
+        }
+    }
+
+    /* ── Stage 6: Aho-Corasick byte-stream ───────────────────────── */
     if (scanner->ac_loaded && data && data_len > 0) {
         ac_scan_ctx_t ctx;
         ctx.scanner = scanner;
