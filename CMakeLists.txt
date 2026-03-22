@@ -117,6 +117,16 @@ target_include_directories(akesoav_edr_shim
 )
 target_compile_options(akesoav_edr_shim PRIVATE ${AKAV_WARNING_FLAGS})
 
+# ── Rule evaluator (for EDR YAML detection rules) ──
+add_library(akesoav_rule_evaluator STATIC
+    rules/rule_evaluator.cpp
+    rules/rule_evaluator.h
+)
+target_include_directories(akesoav_rule_evaluator
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/rules>
+)
+target_compile_options(akesoav_rule_evaluator PRIVATE ${AKAV_WARNING_FLAGS})
+
 # ── Tests ──
 if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     enable_testing()
@@ -176,6 +186,20 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     add_dependencies(akesoav_service_tests akesoav-service)
 
     gtest_discover_tests(akesoav_service_tests
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+
+    # ── EDR rules tests ──
+    add_executable(akesoav_edr_rules_tests
+        tests/unit/test_edr_rules.cpp
+    )
+    target_link_libraries(akesoav_edr_rules_tests PRIVATE
+        akesoav_rule_evaluator
+        GTest::gtest_main
+    )
+    target_compile_options(akesoav_edr_rules_tests PRIVATE ${AKAV_WARNING_FLAGS})
+
+    gtest_discover_tests(akesoav_edr_rules_tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
 

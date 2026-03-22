@@ -1,0 +1,199 @@
+# av_enhanced_detection.yaml -- EDR detection rules using AV telemetry fields.
+#
+# These rules are evaluated by the AkesoEDR rule engine against combined
+# behavioral + AV telemetry events. Each rule specifies conditions on both
+# EDR fields (process, parent, API calls) and AV fields (av_detected,
+# av_heuristic_score, etc.) per §3.6.
+#
+# Rule format follows the AkesoEDR Sigma-compatible schema:
+#   - id: unique rule identifier
+#   - name: human-readable name
+#   - description: what the rule detects
+#   - severity: low | medium | high | critical
+#   - mitre: ATT&CK technique IDs
+#   - conditions: list of field conditions (all must match = AND logic)
+#   - tags: classification tags
+
+---
+
+# ────────────────────────────────────────────────────────────────────
+# Rule 1: Malware dropped by Office application
+#
+# Detects when an Office application (Word, Excel, PowerPoint, Outlook)
+# writes a file to disk that the AV engine flags as malicious.
+# Combines minifilter file-write event (parent is Office) with AV scan
+# result (av_detected = true).
+# ────────────────────────────────────────────────────────────────────
+
+- id: AV-EDR-001
+  name: "Malware dropped by Office application"
+  description: >
+    An Office application wrote a file that the AV engine detected as malware.
+    This is a strong indicator of a malicious document (macro, DDE, OLE exploit)
+    dropping a payload to disk.
+  severity: critical
+  mitre:
+    - T1566.001  # Phishing: Spearphishing Attachment
+    - T1204.002  # User Execution: Malicious File
+    - T1059.005  # Command and Scripting Interpreter: Visual Basic
+  conditions:
+    - field: event_type
+      op: eq
+      value: "file_create"
+    - field: parent_name
+      op: in
+      values:
+        - "WINWORD.EXE"
+        - "EXCEL.EXE"
+        - "POWERPNT.EXE"
+        - "OUTLOOK.EXE"
+        - "MSPUB.EXE"
+        - "VISIO.EXE"
+    - field: av_detected
+      op: eq
+      value: true
+  action: alert
+  tags:
+    - malware
+    - office
+    - initial-access
+
+# ────────────────────────────────────────────────────────────────────
+# Rule 2: Heuristic suspicious file from browser
+#
+# Detects when a browser downloads a file that scores above 50 on the
+# heuristic engine. Even without a signature match, a high heuristic
+# score from a browser-downloaded file warrants investigation.
+# ────────────────────────────────────────────────────────────────────
+
+- id: AV-EDR-002
+  name: "Heuristic suspicious file from browser download"
+  description: >
+    A web browser wrote a file to disk that the AV heuristic engine scored
+    above the suspicion threshold (>50). This may indicate a drive-by download
+    or user downloading a suspicious executable from the web.
+  severity: high
+  mitre:
+    - T1189      # Drive-by Compromise
+    - T1105      # Ingress Tool Transfer
+  conditions:
+    - field: event_type
+      op: eq
+      value: "file_create"
+    - field: parent_name
+      op: in
+      values:
+        - "chrome.exe"
+        - "msedge.exe"
+        - "firefox.exe"
+        - "iexplore.exe"
+        - "brave.exe"
+        - "opera.exe"
+    - field: av_heuristic_score
+      op: gt
+      value: 50.0
+  action: alert
+  tags:
+    - heuristic
+    - browser
+    - download
+
+# ────────────────────────────────────────────────────────────────────
+# Rule 3: AV match combined with process injection
+#
+# Detects when a process that was flagged by AV (av_detected = true)
+# subsequently performs remote thread creation — a classic pattern for
+# malware that drops to disk, gets flagged, and attempts to inject into
+# another process for persistence or privilege escalation.
+# ────────────────────────────────────────────────────────────────────
+
+- id: AV-EDR-003
+  name: "AV-detected process performs remote thread injection"
+  description: >
+    A file flagged as malware by the AV engine was involved in a process
+    that subsequently called NtCreateThreadEx with remote=true, indicating
+    process injection. This combines static AV detection with behavioral
+    injection detection for high-confidence alerting.
+  severity: critical
+  mitre:
+    - T1055.003  # Process Injection: Thread Execution Hijacking
+    - T1055.001  # Process Injection: DLL Injection
+    - T1055.012  # Process Injection: Process Hollowing
+  conditions:
+    - field: event_type
+      op: eq
+      value: "thread_create"
+    - field: remote
+      op: eq
+      value: true
+    - field: av_detected
+      op: eq
+      value: true
+  action: alert
+  tags:
+    - injection
+    - malware
+    - execution
+
+# ────────────────────────────────────────────────────────────────────
+# Rule 4: AV-detected file executed
+#
+# Detects when a file already flagged by AV is executed as a process.
+# The minifilter flagged the file on write, and now it's running.
+# ────────────────────────────────────────────────────────────────────
+
+- id: AV-EDR-004
+  name: "Execution of AV-detected malware"
+  description: >
+    A file that the AV engine detected as malware was executed. This indicates
+    the malware was not quarantined or the user bypassed the warning.
+  severity: critical
+  mitre:
+    - T1204.002  # User Execution: Malicious File
+  conditions:
+    - field: event_type
+      op: eq
+      value: "process_create"
+    - field: av_detected
+      op: eq
+      value: true
+  action: alert
+  tags:
+    - malware
+    - execution
+
+# ────────────────────────────────────────────────────────────────────
+# Rule 5: High heuristic score on packed executable
+#
+# Detects packed executables with high heuristic scores, even without
+# a signature match — strong indicator of novel/unknown malware.
+# ────────────────────────────────────────────────────────────────────
+
+- id: AV-EDR-005
+  name: "Packed executable with high heuristic score"
+  description: >
+    A file detected as packed (UPX, Themida, etc.) scored above 75 on
+    the heuristic engine. Packed executables with high heuristic scores
+    are very likely malicious even without a signature match.
+  severity: high
+  mitre:
+    - T1027.002  # Obfuscated Files or Information: Software Packing
+    - T1140      # Deobfuscate/Decode Files or Information
+  conditions:
+    - field: event_type
+      op: eq
+      value: "file_create"
+    - field: av_heuristic_score
+      op: gt
+      value: 75.0
+    - field: av_file_type
+      op: eq
+      value: "PE32"
+    - field: av_scanner_id
+      op: eq
+      value: "heuristic"
+  action: alert
+  tags:
+    - heuristic
+    - packed
+    - evasion
