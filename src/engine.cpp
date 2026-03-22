@@ -80,7 +80,6 @@ akav_error_t Engine::load_signatures(const char* db_path)
 akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* name,
                                  const akav_scan_options_t* opts, akav_scan_result_t* result)
 {
-    (void)name; /* Used for display in later phases */
     if (!is_initialized())
         return AKAV_ERROR_NOT_INIT;
     if (!buf && len > 0)
@@ -147,6 +146,28 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
 
     auto end = std::chrono::steady_clock::now();
     result->scan_time_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    /* Emit SIEM event for detections (buffer scans) */
+    if (result->found && siem_) {
+        ScanResultPayload srp{};
+        srp.result = "malicious";
+        srp.scanner_id = result->scanner_id;
+        srp.scan_type = "on_demand";
+        srp.heuristic_score = result->heuristic_score;
+        srp.duration_ms = (uint64_t)result->scan_time_ms;
+        srp.sig_name = result->malware_name;
+        srp.sig_id = result->signature_id;
+        srp.sig_engine = result->scanner_id;
+        srp.db_version = db_version_str_;
+        srp.file_name = name ? name : "";
+        srp.file_type = result->file_type;
+        srp.file_size = (uint64_t)result->total_size;
+        srp.in_whitelist = (result->in_whitelist != 0);
+
+        akav_siem_event_t siem_event;
+        serialize_scan_result(srp, &siem_event);
+        siem_->submit(siem_event);
+    }
 
     return AKAV_OK;
 }
@@ -547,29 +568,7 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
         cache_->insert(path, last_modified, file_size.QuadPart, *result);
     }
 
-    /* Emit SIEM event for detections */
-    if (err == AKAV_OK && result->found && siem_) {
-        ScanResultPayload srp{};
-        srp.result = "malicious";
-        srp.scanner_id = result->scanner_id;
-        srp.scan_type = "on_demand";
-        srp.heuristic_score = result->heuristic_score;
-        srp.duration_ms = (uint64_t)result->scan_time_ms;
-        srp.sig_name = result->malware_name;
-        srp.sig_id = result->signature_id;
-        srp.sig_engine = result->scanner_id;
-        srp.db_version = db_version_str_;
-        srp.file_path = path;
-        srp.file_name = filename;
-        srp.file_type = result->file_type;
-        srp.file_size = (uint64_t)result->total_size;
-        /* sha256 not stored in scan_result; leave empty */
-        srp.in_whitelist = (result->in_whitelist != 0);
-
-        akav_siem_event_t siem_event;
-        serialize_scan_result(srp, &siem_event);
-        siem_->submit(siem_event);
-    }
+    /* SIEM event is emitted by scan_buffer() — no duplicate emit here */
 
     return err;
 }

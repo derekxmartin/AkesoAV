@@ -576,23 +576,16 @@ TEST(SiemEngineAPI, EicarScanEmitsScanResultEvent)
     ASSERT_NE(shipper, nullptr);
     ASSERT_TRUE(shipper->start_jsonl(jsonl_path.c_str()));
 
-    /* Write EICAR to a temp file */
-    std::string eicar_path = dir + "\\eicar.com.txt";
-    {
-        FILE* f = nullptr;
-        fopen_s(&f, eicar_path.c_str(), "wb");
-        ASSERT_NE(f, nullptr);
-        fwrite(EICAR_STR, 1, EICAR_LEN, f);
-        fclose(f);
-    }
-
-    /* Scan the EICAR file */
+    /* Scan EICAR via buffer — avoids file I/O so Windows Defender
+     * cannot quarantine the test string before we scan it. */
     akav_scan_options_t opts;
     akav_scan_options_default(&opts);
     opts.use_cache = 0;
 
     akav_scan_result_t result;
-    akav_error_t err = akav_scan_file(engine, eicar_path.c_str(), &opts, &result);
+    akav_error_t err = akav_scan_buffer(engine,
+        (const uint8_t*)EICAR_STR, EICAR_LEN, "eicar.com",
+        &opts, &result);
     ASSERT_EQ(err, AKAV_OK);
     ASSERT_EQ(result.found, 1) << "EICAR should be detected";
 
