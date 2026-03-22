@@ -54,6 +54,7 @@ set(AKAV_ENGINE_SOURCES
     src/parsers/gzip.cpp
     src/parsers/tar.cpp
     src/heuristics/static_analyzer.cpp
+    src/heuristics/entropy.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -108,6 +109,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_zip.cpp
         tests/unit/test_gzip_tar.cpp
         tests/unit/test_static_analyzer.cpp
+        tests/unit/test_entropy_analyzer.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
