@@ -4,6 +4,7 @@
 #include "parsers/zip.h"
 #include "parsers/gzip.h"
 #include "parsers/tar.h"
+#include "signatures/hash_matcher.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -17,8 +18,13 @@ namespace akav
 
 Engine::Engine()
     : cache_(std::make_unique<ScanCache>())
+    , whitelist_(std::make_unique<Whitelist>())
 {
     akav_scanner_init(&scanner_);
+
+    /* Default trusted signers per section 5.4 */
+    whitelist_->add_signer("Microsoft Corporation");
+    whitelist_->add_signer("Microsoft Windows");
 }
 
 Engine::~Engine()
@@ -415,6 +421,19 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
     if (!path || !result)
         return AKAV_ERROR_INVALID;
 
+    /* Use default options if none provided */
+    akav_scan_options_t defaults;
+    akav_scan_options_default(&defaults);
+    if (!opts)
+        opts = &defaults;
+
+    /* ── Whitelist check 1: Path exclusion (before any file I/O) ── */
+    if (opts->use_whitelist && whitelist_ && whitelist_->is_path_excluded(path)) {
+        memset(result, 0, sizeof(*result));
+        result->in_whitelist = 1;
+        return AKAV_OK;
+    }
+
     /* Open file and get metadata */
     HANDLE hFile = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -435,11 +454,6 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
                             ft_write.dwLowDateTime;
 
     /* Check max filesize if specified */
-    akav_scan_options_t defaults;
-    akav_scan_options_default(&defaults);
-    if (!opts)
-        opts = &defaults;
-
     if (opts->max_filesize > 0 && file_size.QuadPart > opts->max_filesize)
     {
         CloseHandle(hFile);
@@ -482,6 +496,39 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
     {
         free(buf);
         return AKAV_ERROR_IO;
+    }
+
+    /* ── Whitelist check 2: SHA-256 hash whitelist (after file read) ── */
+    if (opts->use_whitelist && whitelist_) {
+        uint8_t sha[AKAV_SHA256_LEN];
+        if (akav_hash_sha256(buf, buf_size, sha)) {
+            if (whitelist_->is_hash_whitelisted(sha)) {
+                free(buf);
+                memset(result, 0, sizeof(*result));
+                result->in_whitelist = 1;
+                result->total_size = (int64_t)buf_size;
+
+                /* Still cache the whitelisted result */
+                if (opts->use_cache && cache_) {
+                    cache_->insert(path, last_modified, file_size.QuadPart, *result);
+                }
+                return AKAV_OK;
+            }
+        }
+    }
+
+    /* ── Whitelist check 3: Authenticode signer trust ── */
+    if (opts->use_whitelist && whitelist_ && whitelist_->is_signer_trusted(path)) {
+        free(buf);
+        memset(result, 0, sizeof(*result));
+        result->in_whitelist = 1;
+        result->total_size = (int64_t)buf_size;
+
+        /* Cache the whitelisted result */
+        if (opts->use_cache && cache_) {
+            cache_->insert(path, last_modified, file_size.QuadPart, *result);
+        }
+        return AKAV_OK;
     }
 
     /* Extract filename for display */
@@ -568,27 +615,37 @@ akav_error_t Engine::cache_stats(uint64_t* hits, uint64_t* misses, uint64_t* ent
     return AKAV_OK;
 }
 
-akav_error_t Engine::whitelist_add_hash(const uint8_t[32])
+akav_error_t Engine::whitelist_add_hash(const uint8_t sha256[32])
 {
-    /* TODO: Phase 5 */
+    if (!sha256)
+        return AKAV_ERROR_INVALID;
+    if (whitelist_)
+        whitelist_->add_hash(sha256);
     return AKAV_OK;
 }
 
-akav_error_t Engine::whitelist_add_path(const char*)
+akav_error_t Engine::whitelist_add_path(const char* path_prefix)
 {
-    /* TODO: Phase 5 */
+    if (!path_prefix)
+        return AKAV_ERROR_INVALID;
+    if (whitelist_)
+        whitelist_->add_path(path_prefix);
     return AKAV_OK;
 }
 
-akav_error_t Engine::whitelist_add_signer(const char*)
+akav_error_t Engine::whitelist_add_signer(const char* signer_name)
 {
-    /* TODO: Phase 5 */
+    if (!signer_name)
+        return AKAV_ERROR_INVALID;
+    if (whitelist_)
+        whitelist_->add_signer(signer_name);
     return AKAV_OK;
 }
 
 akav_error_t Engine::whitelist_clear()
 {
-    /* TODO: Phase 5 */
+    if (whitelist_)
+        whitelist_->clear();
     return AKAV_OK;
 }
 
