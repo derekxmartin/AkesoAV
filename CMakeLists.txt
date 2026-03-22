@@ -50,7 +50,7 @@ if(MSVC)
 endif()
 
 # ── Windows libraries ──
-set(AKAV_WIN_LIBS bcrypt.lib crypt32.lib wintrust.lib)
+set(AKAV_WIN_LIBS bcrypt.lib crypt32.lib wintrust.lib winhttp.lib)
 
 # ── Core engine sources (static lib shared by DLL and tests) ──
 set(AKAV_ENGINE_SOURCES
@@ -76,6 +76,9 @@ set(AKAV_ENGINE_SOURCES
     src/scan_cache.cpp
     src/whitelist.cpp
     src/quarantine/quarantine.cpp
+    src/siem/event_serialize.cpp
+    src/siem/jsonl_writer.cpp
+    src/siem/siem_shipper.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -162,6 +165,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_scan_cache.cpp
         tests/unit/test_whitelist.cpp
         tests/unit/test_quarantine.cpp
+        tests/unit/test_siem.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

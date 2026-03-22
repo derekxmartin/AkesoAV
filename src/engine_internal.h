@@ -5,6 +5,7 @@
 #include "scanner.h"
 #include "scan_cache.h"
 #include "whitelist.h"
+#include "siem/siem_shipper.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -48,6 +49,9 @@ public:
     akav_error_t siem_start_http_shipper(const char* siem_url, const char* api_key);
     akav_error_t siem_stop_http_shipper();
 
+    /* Access the SIEM shipper for JSONL init and direct event submission */
+    SiemShipper* siem_shipper() { return siem_.get(); }
+
     bool is_initialized() const { return initialized_.load(std::memory_order_acquire); }
 
     /* Archive scanning (recursive) */
@@ -69,6 +73,7 @@ private:
     bool scanner_loaded_{false};
     std::unique_ptr<ScanCache> cache_;
     std::unique_ptr<Whitelist> whitelist_;
+    std::unique_ptr<SiemShipper> siem_;
 };
 
 } /* namespace akav */
