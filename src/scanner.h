@@ -7,6 +7,10 @@
 #include "signatures/hash_matcher.h"
 #include "signatures/crc_matcher.h"
 #include "signatures/aho_corasick.h"
+#include "heuristics/static_analyzer.h"
+#include "heuristics/entropy.h"
+#include "heuristics/imports.h"
+#include "heuristics/strings.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -50,6 +54,13 @@ typedef struct {
     /* String table pointer (from sigdb, not owned) */
     const char*          string_table;
     uint32_t             string_table_size;
+
+    /* Heuristic weights (loaded once, reused per scan) */
+    akav_pe_header_weights_t pe_header_weights;
+    akav_entropy_weights_t   entropy_weights;
+    akav_import_weights_t    import_weights;
+    akav_string_weights_t    string_weights;
+    bool                     heuristic_weights_loaded;
 
     /* Stats */
     uint32_t total_signatures;
@@ -98,6 +109,31 @@ void akav_scanner_scan_buffer(const akav_scanner_t* scanner,
  */
 const char* akav_scanner_lookup_name(const akav_scanner_t* scanner,
                                       uint32_t name_index);
+
+/**
+ * Load heuristic weights from JSON config files.
+ * If a file is missing or invalid, defaults are used.
+ * config_dir may be NULL to use defaults for all analyzers.
+ */
+void akav_scanner_load_heuristic_weights(akav_scanner_t* scanner,
+                                          const char* config_dir);
+
+/**
+ * Run the heuristic pipeline on a buffer.
+ *
+ * Only runs on PE files. Parses the PE, runs all 4 static analyzers
+ * (PE header, entropy, imports, strings), sums scores, and checks
+ * against the threshold for the given heuristic level.
+ *
+ * If score exceeds threshold: populates result->found, malware_name,
+ * scanner_id, heuristic_score.
+ *
+ * Returns the total heuristic score (always set in result->heuristic_score).
+ */
+int akav_scanner_run_heuristics(const akav_scanner_t* scanner,
+                                 const uint8_t* data, size_t data_len,
+                                 akav_heur_level_t level,
+                                 akav_scan_result_t* result);
 
 #ifdef __cplusplus
 }

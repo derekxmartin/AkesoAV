@@ -99,6 +99,19 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
         akav_scanner_scan_buffer(&scanner_, buf, len, result);
     }
 
+    /* If not yet detected and heuristics enabled, run heuristic pipeline on PE files */
+    if (!result->found && opts->use_heuristics &&
+        opts->heuristic_level != AKAV_HEUR_OFF)
+    {
+        /* Ensure weights are loaded (lazy init, safe to call multiple times) */
+        if (!scanner_.heuristic_weights_loaded) {
+            akav_scanner_load_heuristic_weights(&scanner_, "config");
+        }
+
+        akav_scanner_run_heuristics(&scanner_, buf, len,
+                                     opts->heuristic_level, result);
+    }
+
     /* If not yet detected and archive scanning is enabled, recurse into archives */
     if (!result->found && opts->scan_archives)
     {
