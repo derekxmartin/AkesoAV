@@ -16,6 +16,7 @@ namespace akav
 {
 
 Engine::Engine()
+    : cache_(std::make_unique<ScanCache>())
 {
     akav_scanner_init(&scanner_);
 }
@@ -47,6 +48,10 @@ akav_error_t Engine::load_signatures(const char* db_path)
         akav_scanner_init(&scanner_);
         scanner_loaded_ = false;
     }
+
+    /* Clear scan cache — new signatures may change verdicts */
+    if (cache_)
+        cache_->clear();
 
     akav_error_t err = akav_scanner_load(&scanner_, db_path);
     if (err != AKAV_OK)
@@ -410,7 +415,7 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
     if (!path || !result)
         return AKAV_ERROR_INVALID;
 
-    /* Read file into memory */
+    /* Open file and get metadata */
     HANDLE hFile = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE)
@@ -422,6 +427,12 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
         CloseHandle(hFile);
         return AKAV_ERROR_IO;
     }
+
+    /* Get last-modified timestamp for cache key */
+    FILETIME ft_write{};
+    GetFileTime(hFile, nullptr, nullptr, &ft_write);
+    int64_t last_modified = ((int64_t)ft_write.dwHighDateTime << 32) |
+                            ft_write.dwLowDateTime;
 
     /* Check max filesize if specified */
     akav_scan_options_t defaults;
@@ -444,6 +455,14 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
         memset(result, 0, sizeof(*result));
         result->total_size = 0;
         return AKAV_OK;
+    }
+
+    /* Check scan cache (if enabled) */
+    if (opts->use_cache && cache_) {
+        if (cache_->lookup(path, last_modified, file_size.QuadPart, result)) {
+            CloseHandle(hFile);
+            return AKAV_OK;  /* Cache hit — result already populated */
+        }
     }
 
     /* Allocate buffer and read */
@@ -473,6 +492,12 @@ akav_error_t Engine::scan_file(const char* path, const akav_scan_options_t* opts
 
     akav_error_t err = scan_buffer(buf, buf_size, filename, opts, result);
     free(buf);
+
+    /* Store result in cache (if scan succeeded and cache enabled) */
+    if (err == AKAV_OK && opts->use_cache && cache_) {
+        cache_->insert(path, last_modified, file_size.QuadPart, *result);
+    }
+
     return err;
 }
 
@@ -524,7 +549,8 @@ akav_error_t Engine::scan_directory(const char* path, const akav_scan_options_t*
 
 akav_error_t Engine::cache_clear()
 {
-    /* TODO: Phase 5 */
+    if (cache_)
+        cache_->clear();
     return AKAV_OK;
 }
 
@@ -532,9 +558,13 @@ akav_error_t Engine::cache_stats(uint64_t* hits, uint64_t* misses, uint64_t* ent
 {
     if (!hits || !misses || !entries)
         return AKAV_ERROR_INVALID;
-    *hits = 0;
-    *misses = 0;
-    *entries = 0;
+    if (cache_) {
+        cache_->stats(hits, misses, entries);
+    } else {
+        *hits = 0;
+        *misses = 0;
+        *entries = 0;
+    }
     return AKAV_OK;
 }
 

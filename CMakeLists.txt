@@ -57,6 +57,7 @@ set(AKAV_ENGINE_SOURCES
     src/heuristics/entropy.cpp
     src/heuristics/imports.cpp
     src/heuristics/strings.cpp
+    src/scan_cache.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -115,6 +116,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_import_analyzer.cpp
         tests/unit/test_string_analyzer.cpp
         tests/unit/test_heuristic_pipeline.cpp
+        tests/unit/test_scan_cache.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

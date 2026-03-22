@@ -3,11 +3,13 @@
 
 #include "akesoav.h"
 #include "scanner.h"
+#include "scan_cache.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
 #include <atomic>
 #include <string>
+#include <memory>
 
 namespace akav
 {
@@ -64,6 +66,7 @@ private:
     std::string db_version_str_;
     akav_scanner_t scanner_{};
     bool scanner_loaded_{false};
+    std::unique_ptr<ScanCache> cache_;
 };
 
 } /* namespace akav */
