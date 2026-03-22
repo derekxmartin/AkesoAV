@@ -1,0 +1,9 @@
+{
+    "cmd_exe":            5,
+    "powershell_exe":     10,
+    "wscript_shell":      10,
+    "currentversion_run": 15,
+    "url_http":           5,
+    "ip_address":         5,
+    "base64_blob":        10
+}
