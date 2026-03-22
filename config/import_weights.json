@@ -1,0 +1,8 @@
+{
+    "injection_combo":      35,
+    "shellcode_loader":     25,
+    "service_installer":    20,
+    "persistence_registry": 15,
+    "ordinal_only":         15,
+    "api_hashing":          25
+}
