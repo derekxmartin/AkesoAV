@@ -1,12 +1,15 @@
 /* akesoav_service.cpp -- AkesoAV standalone Windows service.
  *
- * Implements P5-T3:
+ * Implements P5-T3 + P5 bundling:
  *   - SCM registration (SERVICE_WIN32_OWN_PROCESS)
  *   - Named pipe server (\\.\pipe\AkesoAVScan)
  *   - Thread pool via _beginthreadex (one thread per client)
  *   - Full protocol per section 3.5:
  *       SCAN <path>, VERSION, RELOAD, STATS, PING, QUIT
+ *       SCHEDULE LIST, SCHEDULE RUN <name>, SCHEDULE STATUS
  *   - Signature preload at startup
+ *   - SIEM JSONL logging at startup (local forensic log)
+ *   - Scheduled scanning via Scheduler (cron-based)
  *   - Graceful shutdown via SERVICE_CONTROL_STOP
  *
  * Can also run in console mode (--console) for testing.
@@ -17,6 +20,7 @@
 #include <process.h>  /* _beginthreadex */
 
 #include "akesoav.h"
+#include "service/scheduler.h"
 
 #include <cstdio>
 #include <cstring>
@@ -24,6 +28,7 @@
 #include <cstdint>
 #include <atomic>
 #include <chrono>
+#include <string>
 
 /* ── Constants ──────────────────────────────────────────────────── */
 
@@ -41,11 +46,17 @@ static HANDLE                  g_stop_event = NULL;
 static akav_engine_t*          g_engine = NULL;
 static const char*             g_db_path = NULL;
 static const char*             g_config_path = NULL;
+static const char*             g_siem_jsonl_path = NULL;
+static bool                    g_no_scheduler = false;
 
 /* Stats (atomic for thread-safe access) */
 static std::atomic<uint64_t>   g_files_scanned{0};
 static std::atomic<uint64_t>   g_malware_found{0};
 static std::chrono::steady_clock::time_point g_start_time;
+
+/* Scheduler (service-owned, C++ object) */
+static akav::Scheduler         g_scheduler;
+static bool                    g_scheduler_running = false;
 
 /* ── Pipe protocol helpers ──────────────────────────────────────── */
 
@@ -152,6 +163,11 @@ static void handle_reload(HANDLE pipe)
         return;
     }
 
+    /* Also reload scheduler config */
+    if (g_scheduler_running) {
+        g_scheduler.reload();
+    }
+
     pipe_write(pipe, "220 RELOAD OK\r\n");
 }
 
@@ -166,18 +182,101 @@ static void handle_stats(HANDLE pipe)
     auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
         now - g_start_time).count();
 
-    char buf[256];
-    snprintf(buf, sizeof(buf), "220 %llu %llu %llu %lld\r\n",
+    char buf[1024];
+    int offset = snprintf(buf, sizeof(buf), "220 %llu %llu %llu %lld",
              (unsigned long long)g_files_scanned.load(std::memory_order_relaxed),
              (unsigned long long)g_malware_found.load(std::memory_order_relaxed),
              (unsigned long long)cache_hits,
              (long long)uptime);
+
+    /* Append scheduler status if active */
+    if (g_scheduler_running) {
+        const auto& prog = g_scheduler.progress();
+        if (prog.active.load(std::memory_order_relaxed)) {
+            offset += snprintf(buf + offset, sizeof(buf) - (size_t)offset,
+                " SCHED_ACTIVE %llu %llu %llu",
+                (unsigned long long)prog.files_scanned.load(std::memory_order_relaxed),
+                (unsigned long long)prog.detections.load(std::memory_order_relaxed),
+                (unsigned long long)prog.errors.load(std::memory_order_relaxed));
+        } else {
+            offset += snprintf(buf + offset, sizeof(buf) - (size_t)offset,
+                " SCHED_IDLE");
+        }
+    }
+
+    snprintf(buf + offset, sizeof(buf) - (size_t)offset, "\r\n");
     pipe_write(pipe, buf);
 }
 
 static void handle_ping(HANDLE pipe)
 {
     pipe_write(pipe, "220 PONG\r\n");
+}
+
+/* ── Schedule command handlers ─────────────────────────────────── */
+
+static void handle_schedule(HANDLE pipe, const char* subcmd)
+{
+    if (!g_scheduler_running) {
+        pipe_write(pipe, "500 Scheduler not running\r\n");
+        return;
+    }
+
+    if (!subcmd || !subcmd[0]) {
+        pipe_write(pipe, "500 Usage: SCHEDULE LIST|RUN <name>|STATUS\r\n");
+        return;
+    }
+
+    if (_stricmp(subcmd, "LIST") == 0) {
+        auto entries = g_scheduler.schedules();
+        char buf[512];
+        snprintf(buf, sizeof(buf), "220 %zu schedules\r\n",
+                 entries.size());
+        pipe_write(pipe, buf);
+
+        for (const auto& e : entries) {
+            snprintf(buf, sizeof(buf), "  %s\t%s\t%s\t%s\r\n",
+                     e.name.c_str(), e.type.c_str(), e.cron_expr.c_str(),
+                     e.enabled ? "enabled" : "disabled");
+            pipe_write(pipe, buf);
+        }
+        pipe_write(pipe, "200 OK\r\n");
+
+    } else if (_stricmp(subcmd, "STATUS") == 0) {
+        const auto& prog = g_scheduler.progress();
+        char buf[512];
+        if (prog.active.load(std::memory_order_relaxed)) {
+            snprintf(buf, sizeof(buf),
+                "220 ACTIVE schedule=%s type=%s files=%llu detections=%llu errors=%llu\r\n",
+                prog.schedule_name.c_str(), prog.scan_type.c_str(),
+                (unsigned long long)prog.files_scanned.load(std::memory_order_relaxed),
+                (unsigned long long)prog.detections.load(std::memory_order_relaxed),
+                (unsigned long long)prog.errors.load(std::memory_order_relaxed));
+        } else {
+            snprintf(buf, sizeof(buf), "220 IDLE\r\n");
+        }
+        pipe_write(pipe, buf);
+
+    } else if (_strnicmp(subcmd, "RUN ", 4) == 0) {
+        const char* name = subcmd + 4;
+        if (!name[0]) {
+            pipe_write(pipe, "500 Missing schedule name\r\n");
+            return;
+        }
+
+        if (g_scheduler.run_now(name)) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "220 Scheduled run: %s\r\n", name);
+            pipe_write(pipe, buf);
+        } else {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "500 Schedule not found: %s\r\n", name);
+            pipe_write(pipe, buf);
+        }
+
+    } else {
+        pipe_write(pipe, "500 Usage: SCHEDULE LIST|RUN <name>|STATUS\r\n");
+    }
 }
 
 /* ── Client thread ──────────────────────────────────────────────── */
@@ -214,6 +313,10 @@ static unsigned __stdcall client_thread(void* arg)
             handle_stats(pipe);
         } else if (_stricmp(line, "PING") == 0) {
             handle_ping(pipe);
+        } else if (_strnicmp(line, "SCHEDULE ", 9) == 0) {
+            handle_schedule(pipe, line + 9);
+        } else if (_stricmp(line, "SCHEDULE") == 0) {
+            handle_schedule(pipe, "");
         } else if (_stricmp(line, "QUIT") == 0) {
             break;  /* Close connection */
         } else {
@@ -327,7 +430,33 @@ static bool engine_init()
         if (err != AKAV_OK) {
             fprintf(stderr, "[service] Warning: signature load failed: %s\n",
                     akav_strerror(err));
-            /* Continue without signatures — EICAR/heuristics still work */
+            /* Continue without signatures -- EICAR/heuristics still work */
+        }
+    }
+
+    /* Start SIEM JSONL logging (local forensic log) */
+    err = akav_siem_start_jsonl(g_engine, g_siem_jsonl_path);
+    if (err != AKAV_OK) {
+        fprintf(stderr, "[service] Warning: SIEM JSONL init failed: %s\n",
+                akav_strerror(err));
+        /* Non-fatal: continue without local logging */
+    } else {
+        fprintf(stderr, "[service] SIEM JSONL logging started\n");
+    }
+
+    /* Start scheduler (unless disabled) */
+    if (!g_no_scheduler) {
+        if (g_scheduler.init(g_engine, g_config_path)) {
+            if (g_scheduler.start()) {
+                g_scheduler_running = true;
+                fprintf(stderr, "[service] Scheduler started (%zu schedules)\n",
+                        g_scheduler.schedules().size());
+            } else {
+                fprintf(stderr, "[service] Warning: scheduler start failed\n");
+            }
+        } else {
+            fprintf(stderr, "[service] Warning: scheduler init failed "
+                    "(no schedules.json or invalid config)\n");
         }
     }
 
@@ -336,6 +465,18 @@ static bool engine_init()
 
 static void engine_shutdown()
 {
+    /* Stop scheduler first */
+    if (g_scheduler_running) {
+        g_scheduler.stop();
+        g_scheduler_running = false;
+        fprintf(stderr, "[service] Scheduler stopped\n");
+    }
+
+    /* Stop SIEM JSONL (flushes remaining events) */
+    if (g_engine) {
+        akav_siem_stop_jsonl(g_engine);
+    }
+
     if (g_engine) {
         akav_engine_destroy(g_engine);
         g_engine = NULL;
@@ -442,6 +583,11 @@ static void run_console()
     g_start_time = std::chrono::steady_clock::now();
 
     printf("[service] Engine initialized. Listening for connections...\n");
+    if (g_scheduler_running) {
+        auto entries = g_scheduler.schedules();
+        printf("[service] Scheduler active with %zu schedule(s)\n",
+               entries.size());
+    }
     printf("[service] Press Ctrl+C to stop.\n");
 
     /* Set console Ctrl+C handler */
@@ -543,6 +689,8 @@ static void print_usage(const char* prog)
     printf("  --uninstall         Uninstall Windows service\n");
     printf("  --db <path>         Path to .akavdb signature database\n");
     printf("  --config <path>     Path to config directory\n");
+    printf("  --siem-jsonl <path> Path for SIEM JSONL log file\n");
+    printf("  --no-scheduler      Disable scheduled scanning\n");
     printf("  -h, --help          Show this help\n");
 }
 
@@ -568,6 +716,10 @@ int main(int argc, char* argv[])
             g_db_path = argv[++i];
         } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
             g_config_path = argv[++i];
+        } else if (strcmp(argv[i], "--siem-jsonl") == 0 && i + 1 < argc) {
+            g_siem_jsonl_path = argv[++i];
+        } else if (strcmp(argv[i], "--no-scheduler") == 0) {
+            g_no_scheduler = true;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;

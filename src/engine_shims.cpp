@@ -106,6 +106,16 @@ akav_error_t akav_shim_siem_stop_http_shipper(akav_engine_t* engine)
     return engine->impl.siem_stop_http_shipper();
 }
 
+akav_error_t akav_shim_siem_start_jsonl(akav_engine_t* engine, const char* path)
+{
+    return engine->impl.siem_start_jsonl(path);
+}
+
+akav_error_t akav_shim_siem_stop_jsonl(akav_engine_t* engine)
+{
+    return engine->impl.siem_stop_jsonl();
+}
+
 akav_error_t akav_shim_update_signatures(akav_engine_t* engine, const char* update_url)
 {
     (void)engine;

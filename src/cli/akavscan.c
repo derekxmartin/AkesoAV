@@ -31,6 +31,7 @@ typedef struct
     int64_t max_filesize;/* --max-size */
     int timeout_ms;     /* --timeout */
     const char* db_path;/* --db */
+    const char* siem_jsonl_path; /* --siem-jsonl */
     int file_count;
     const char* files[256];
 } cli_options_t;
@@ -54,7 +55,8 @@ static void print_usage(void)
         "  --heur-level N      Heuristic level 0-3 (default 2=medium)\n"
         "  --max-size N        Max file size in bytes (0=no limit)\n"
         "  --timeout N         Per-file timeout in ms (default 30000)\n"
-        "  --db PATH           Path to .akavdb signature database\n",
+        "  --db PATH           Path to .akavdb signature database\n"
+        "  --siem-jsonl [PATH] Enable SIEM JSONL logging (default path if omitted)\n",
         akav_engine_version());
 }
 
@@ -96,6 +98,14 @@ static int parse_args(int argc, char* argv[], cli_options_t* opts)
             opts->timeout_ms = atoi(argv[++i]);
         else if (strcmp(argv[i], "--db") == 0 && i + 1 < argc)
             opts->db_path = argv[++i];
+        else if (strcmp(argv[i], "--siem-jsonl") == 0)
+        {
+            /* Optional path argument: use next arg if it doesn't start with '-' */
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+                opts->siem_jsonl_path = argv[++i];
+            else
+                opts->siem_jsonl_path = "";  /* Empty string = use default path */
+        }
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
@@ -261,6 +271,23 @@ int main(int argc, char* argv[])
         return 2;
     }
 
+    /* Start SIEM JSONL logging if requested */
+    if (opts.siem_jsonl_path)
+    {
+        const char* path = opts.siem_jsonl_path[0] ? opts.siem_jsonl_path : NULL;
+        err = akav_siem_start_jsonl(engine, path);
+        if (err != AKAV_OK)
+        {
+            fprintf(stderr, "Warning: SIEM JSONL init failed: %s\n",
+                    akav_strerror(err));
+            /* Non-fatal: continue without logging */
+        }
+        else if (opts.verbose)
+        {
+            printf("SIEM JSONL logging enabled\n");
+        }
+    }
+
     /* Load signature database if specified */
     if (opts.db_path)
     {
@@ -393,6 +420,10 @@ int main(int argc, char* argv[])
         printf("Scanned: %d\n", total_scanned);
         printf("Infected: %d\n", total_infected);
     }
+
+    /* Stop SIEM JSONL (flushes remaining events) */
+    if (opts.siem_jsonl_path)
+        akav_siem_stop_jsonl(engine);
 
     akav_engine_destroy(engine);
 

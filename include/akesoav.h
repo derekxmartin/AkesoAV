@@ -159,6 +159,11 @@ AKAV_API akav_error_t akav_siem_start_http_shipper(_In_ akav_engine_t* engine,
                                                   _In_z_ const char* api_key);
 AKAV_API akav_error_t akav_siem_stop_http_shipper(_In_ akav_engine_t* engine);
 
+/* Start local JSONL event logging. path may be NULL for default location. */
+AKAV_API akav_error_t akav_siem_start_jsonl(_In_ akav_engine_t* engine,
+                                           _In_opt_z_ const char* path);
+AKAV_API akav_error_t akav_siem_stop_jsonl(_In_ akav_engine_t* engine);
+
 /* -- Defaults -- */
 AKAV_API void akav_scan_options_default(_Out_ akav_scan_options_t* opts);
 

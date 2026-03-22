@@ -48,6 +48,8 @@ public:
     akav_error_t set_siem_callback(akav_siem_callback_t callback, void* user_data);
     akav_error_t siem_start_http_shipper(const char* siem_url, const char* api_key);
     akav_error_t siem_stop_http_shipper();
+    akav_error_t siem_start_jsonl(const char* path);
+    akav_error_t siem_stop_jsonl();
 
     /* Access the SIEM shipper for JSONL init and direct event submission */
     SiemShipper* siem_shipper() { return siem_.get(); }

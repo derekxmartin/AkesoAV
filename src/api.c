@@ -36,6 +36,8 @@ extern akav_error_t akav_shim_set_siem_callback(akav_engine_t* engine,
 extern akav_error_t akav_shim_siem_start_http_shipper(akav_engine_t* engine,
                                                       const char* siem_url, const char* api_key);
 extern akav_error_t akav_shim_siem_stop_http_shipper(akav_engine_t* engine);
+extern akav_error_t akav_shim_siem_start_jsonl(akav_engine_t* engine, const char* path);
+extern akav_error_t akav_shim_siem_stop_jsonl(akav_engine_t* engine);
 extern akav_error_t akav_shim_update_signatures(akav_engine_t* engine, const char* update_url);
 
 /* ── Engine lifecycle ── */
@@ -218,6 +220,21 @@ AKAV_API akav_error_t akav_siem_stop_http_shipper(_In_ akav_engine_t* engine)
     if (!engine)
         return AKAV_ERROR_INVALID;
     return akav_shim_siem_stop_http_shipper(engine);
+}
+
+AKAV_API akav_error_t akav_siem_start_jsonl(_In_ akav_engine_t* engine,
+                                           _In_opt_z_ const char* path)
+{
+    if (!engine)
+        return AKAV_ERROR_INVALID;
+    return akav_shim_siem_start_jsonl(engine, path);
+}
+
+AKAV_API akav_error_t akav_siem_stop_jsonl(_In_ akav_engine_t* engine)
+{
+    if (!engine)
+        return AKAV_ERROR_INVALID;
+    return akav_shim_siem_stop_jsonl(engine);
 }
 
 /* ── Defaults ── */
