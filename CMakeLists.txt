@@ -79,6 +79,8 @@ set(AKAV_ENGINE_SOURCES
     src/siem/event_serialize.cpp
     src/siem/jsonl_writer.cpp
     src/siem/siem_shipper.cpp
+    src/service/cron_parser.cpp
+    src/service/scheduler.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -166,6 +168,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_whitelist.cpp
         tests/unit/test_quarantine.cpp
         tests/unit/test_siem.cpp
+        tests/unit/test_scheduler.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
