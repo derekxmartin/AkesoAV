@@ -53,6 +53,7 @@ set(AKAV_ENGINE_SOURCES
     src/parsers/zip.cpp
     src/parsers/gzip.cpp
     src/parsers/tar.cpp
+    src/heuristics/static_analyzer.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -106,6 +107,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_pe.cpp
         tests/unit/test_zip.cpp
         tests/unit/test_gzip_tar.cpp
+        tests/unit/test_static_analyzer.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

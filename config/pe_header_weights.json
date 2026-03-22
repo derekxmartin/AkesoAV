@@ -1,0 +1,10 @@
+{
+    "entry_outside_text":   15,
+    "wx_section":           20,
+    "packer_section_name":  25,
+    "few_import_dlls":      10,
+    "zero_imports":         20,
+    "suspicious_timestamp": 10,
+    "checksum_mismatch":    5,
+    "overlay_high_entropy": 15
+}
