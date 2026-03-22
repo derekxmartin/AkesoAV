@@ -526,3 +526,207 @@ TEST(StringAnalyzer, Adversarial_Base64WithNewlinesEvades) {
     EXPECT_FALSE(has_hit(r, "base64_blob"))
         << "Known gap: base64 with newline wrapping evades run-length detection";
 }
+
+/* ── Encoding & obfuscation evasions ─────────────────────────────── */
+
+TEST(StringAnalyzer, Adversarial_Rot13CmdEvades) {
+    /* ROT13("cmd.exe") = "pzq.rkr" — literal match fails */
+    akav_string_result_t r;
+    analyze_str("execute pzq.rkr /c whoami", &r);
+    EXPECT_FALSE(has_hit(r, "cmd_exe"))
+        << "Known gap: ROT13-encoded strings not decoded";
+}
+
+TEST(StringAnalyzer, Adversarial_HexEscapedPowershellEvades) {
+    /* Hex-escaped bytes: \x70\x6f\x77... stored literally in script source */
+    std::string content = "\\x70\\x6f\\x77\\x65\\x72\\x73\\x68\\x65"
+                          "\\x6c\\x6c\\x2e\\x65\\x78\\x65";
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "powershell_exe"))
+        << "Known gap: hex-escaped string representations not decoded";
+}
+
+TEST(StringAnalyzer, Adversarial_UrlEncodedIpEvades) {
+    /* All four octets URL-encoded: %31%39%32%2e%31%36%38%2e%31%2e%31
+     * No plain "a.b.c.d" pattern remains visible. */
+    akav_string_result_t r;
+    analyze_str("connect to %31%39%32%2e%31%36%38%2e%31%2e%31 port 4444", &r);
+    EXPECT_FALSE(has_hit(r, "ip_address"))
+        << "Known gap: fully URL-encoded IP addresses not decoded";
+}
+
+TEST(StringAnalyzer, Adversarial_DoubleBase64Evades) {
+    /* Base64-inside-base64: inner blobs each <100 chars */
+    /* Outer: 80 chars of base64 wrapping an inner 60-char payload */
+    const char* charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string inner;
+    for (int i = 0; i < 60; i++) inner += charset[i % 64];
+    std::string outer;
+    for (int i = 0; i < 80; i++) outer += charset[(i + 7) % 64];
+
+    /* Neither blob exceeds 100 chars individually */
+    std::string content = "data1=\"" + inner + "\" data2=\"" + outer + "\"";
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "base64_blob"))
+        << "Known gap: split/double-encoded base64 evades >100 char threshold";
+}
+
+TEST(StringAnalyzer, Adversarial_EnvVarCmdEvades) {
+    /* %comspec% expands to cmd.exe at runtime but not in static strings */
+    akav_string_result_t r;
+    analyze_str("system(\"%comspec% /c del *.tmp\")", &r);
+    EXPECT_FALSE(has_hit(r, "cmd_exe"))
+        << "Known gap: environment variable references not resolved";
+}
+
+/* ── Format-aware evasions ───────────────────────────────────────── */
+
+TEST(StringAnalyzer, Adversarial_WideCmdExeEvades) {
+    /* UTF-16LE "cmd.exe" */
+    std::string content;
+    const char* ascii = "cmd.exe";
+    for (int i = 0; ascii[i]; i++) {
+        content += ascii[i];
+        content += '\0';
+    }
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "cmd_exe"))
+        << "Known gap: UTF-16LE cmd.exe not detected";
+}
+
+TEST(StringAnalyzer, Adversarial_WideUrlEvades) {
+    /* UTF-16LE "http://" */
+    std::string content;
+    const char* ascii = "http://evil.com";
+    for (int i = 0; ascii[i]; i++) {
+        content += ascii[i];
+        content += '\0';
+    }
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "url_http"))
+        << "Known gap: UTF-16LE URLs not detected";
+}
+
+TEST(StringAnalyzer, Adversarial_WideCurrentVersionRunEvades) {
+    /* UTF-16LE "CurrentVersion\Run" */
+    std::string content;
+    const char* ascii = "CurrentVersion\\Run";
+    for (int i = 0; ascii[i]; i++) {
+        content += ascii[i];
+        content += '\0';
+    }
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "currentversion_run"))
+        << "Known gap: UTF-16LE registry paths not detected";
+}
+
+TEST(StringAnalyzer, Adversarial_NullByteInterleaving) {
+    /* Manual null-byte interleaving (not quite UTF-16 but similar) */
+    std::string content;
+    const char* ascii = "WScript.Shell";
+    for (int i = 0; ascii[i]; i++) {
+        content += ascii[i];
+        content += '\0';
+    }
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "wscript_shell"))
+        << "Known gap: null-byte interleaved strings not detected";
+}
+
+/* ── Boundary & edge cases ───────────────────────────────────────── */
+
+TEST(StringAnalyzer, Adversarial_Base64Exactly100CharsNoTrigger) {
+    /* Exactly 100 chars of base64 — threshold is >100, should NOT fire */
+    const char* charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string b64;
+    for (int i = 0; i < 100; i++) b64 += charset[i % 64];
+
+    akav_string_result_t r;
+    analyze_str(b64, &r);
+    EXPECT_FALSE(has_hit(r, "base64_blob"))
+        << "100 chars exactly should not trigger (threshold is >100)";
+}
+
+TEST(StringAnalyzer, Adversarial_Base64Exactly101CharsTriggers) {
+    /* 101 chars of base64 — should trigger */
+    const char* charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string b64;
+    for (int i = 0; i < 101; i++) b64 += charset[i % 64];
+
+    akav_string_result_t r;
+    analyze_str(b64, &r);
+    EXPECT_TRUE(has_hit(r, "base64_blob"))
+        << "101 chars should trigger (threshold is >100)";
+}
+
+TEST(StringAnalyzer, Adversarial_IpAtBufferStart) {
+    /* IP address at very start of buffer */
+    akav_string_result_t r;
+    analyze_str("10.0.0.5 is the target", &r);
+    EXPECT_TRUE(has_hit(r, "ip_address"));
+}
+
+TEST(StringAnalyzer, Adversarial_IpAtBufferEnd) {
+    /* IP address at very end of buffer (no trailing char) */
+    akav_string_result_t r;
+    analyze_str("target is 10.0.0.5", &r);
+    EXPECT_TRUE(has_hit(r, "ip_address"));
+}
+
+TEST(StringAnalyzer, Adversarial_OverlappingUrlCounting) {
+    /* "https://http://nested" — verify we don't double-count or miscount */
+    akav_string_result_t r;
+    analyze_str("https://http://nested.com", &r);
+    EXPECT_TRUE(has_hit(r, "url_http"));
+    /* Should count as 1 https + 1 http = 2 URLs total = score 10 */
+    EXPECT_EQ(get_hit_weight(r, "url_http"), 10);
+}
+
+TEST(StringAnalyzer, Adversarial_VersionStringFalsePositive) {
+    /* "version 1.2.3.4" looks IP-like; verify our parser handles it.
+     * Preceded by 'n' from "version" so the leading-alpha guard should skip it. */
+    akav_string_result_t r;
+    analyze_str("version 1.2.3.4 released today", &r);
+    /* 1.2.3.4 is a valid IP pattern (non-benign), so it will match.
+     * This documents that version strings are a source of false positives. */
+    EXPECT_TRUE(has_hit(r, "ip_address"))
+        << "Known limitation: version strings like 1.2.3.4 match as IP addresses";
+}
+
+/* ── Detection limitation documentation ──────────────────────────── */
+
+TEST(StringAnalyzer, Adversarial_StackBuiltStringInvisible) {
+    /* Simulate what malware does: builds string at runtime via
+     * char s[8]; s[0]='c'; s[1]='m'; s[2]='d'; ...
+     * In the binary, the individual chars aren't adjacent. */
+    std::string content = "mov byte [ebp-8], 'c'\n"
+                          "mov byte [ebp-7], 'm'\n"
+                          "mov byte [ebp-6], 'd'\n"
+                          "mov byte [ebp-5], '.'\n"
+                          "mov byte [ebp-4], 'e'\n"
+                          "mov byte [ebp-3], 'x'\n"
+                          "mov byte [ebp-2], 'e'\n";
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "cmd_exe"))
+        << "Known gap: stack-constructed strings invisible to static analysis";
+}
+
+TEST(StringAnalyzer, Adversarial_DirectRegistryHandleEvades) {
+    /* Using direct HKEY handle without "CurrentVersion\\Run" string.
+     * e.g., RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\...", ...)
+     * followed by RegSetValueEx with a subkey handle, no Run string. */
+    std::string content = "RegOpenKeyExA(HKEY_LOCAL_MACHINE, "
+                          "\"SOFTWARE\\\\Microsoft\\\\Windows\", ...)\n"
+                          "RegSetValueExA(hKey, \"backdoor\", ...)";
+    akav_string_result_t r;
+    analyze_str(content, &r);
+    EXPECT_FALSE(has_hit(r, "currentversion_run"))
+        << "Known gap: registry persistence via handle without Run string path";
+}
