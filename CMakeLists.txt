@@ -108,6 +108,14 @@ add_executable(akavscan src/cli/akavscan.c)
 target_link_libraries(akavscan PRIVATE akesoav_core)
 target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
 
+# ── create_test_db.exe (test .akavdb generator utility) ──
+add_executable(create_test_db scripts/create_test_db.cpp)
+target_link_libraries(create_test_db PRIVATE ${AKAV_WIN_LIBS})
+target_include_directories(create_test_db PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+
 # ── akesoav-service.exe (Windows service + named pipe) ──
 add_executable(akesoav-service src/service/akesoav_service.cpp)
 target_link_libraries(akesoav-service PRIVATE akesoav_core)
