@@ -5,7 +5,7 @@ Version 1.2 — Requirements + Implementation Phases | March 2026
 Architecture derived from *The Antivirus Hacker's Handbook* by Joxean Koret & Elias Bachaalany (Wiley, 2015)
 Designed for integration with AkesoEDR as the static/signature detection layer within a unified endpoint security platform
 
-> **v1.2 Changelog (from v1.1):** Added AkesoSIEM telemetry integration: §3.7 with full event schema for 5 event types (av:scan_result, av:quarantine, av:realtime_block, av:signature_update, av:scan_error), common envelope per SIEM v2.4 §2, ECS field mappings per SIEM v2.4 §4.4, NDJSON transport specification, ring buffer batching, standalone HTTP shipper + JSONL local log, integrated-mode callback for EDR agent. C API additions: akav_siem_event_t, akav_siem_callback_t, akav_set_siem_callback(), akav_siem_start/stop_http_shipper(). Added Phase 11: Hardening & Evasion Resistance (6 tasks) — signature evasion testing across all layers, parser crash resilience, self-protection attack suite, heuristic boundary testing, emulator anti-analysis testing, update protocol attack suite. Renumbered old Phase 11 → Phase 12. Added P5-T7 (SIEM event shipper, L), P12-T8 (SIEM integration test, L). 7 new SIEM integration test scenarios (#27–33). Updated repo structure with src/siem/ and tests/hardening/. Total: +8 tasks (67 → 75), +1 phase (12 → 13).
+> **v1.2 Changelog (from v1.1):** Added AkesoSIEM telemetry integration: §3.7 with full event schema for 7 event types (av:scan_result, av:quarantine, av:realtime_block, av:signature_update, av:scan_error, av:scheduled_scan_start, av:scheduled_scan_complete), common envelope per SIEM v2.4 §2, ECS field mappings per SIEM v2.4 §4.4, NDJSON transport specification, ring buffer batching, standalone HTTP shipper + JSONL local log, integrated-mode callback for EDR agent. C API additions: akav_siem_event_t, akav_siem_callback_t, akav_set_siem_callback(), akav_siem_start/stop_http_shipper(), akav_schedule_load/start/stop/run_now/status(). Added §5.13 Scheduled Scanning: cron-based scheduler, quick/full/custom scan types, I/O throttling, battery-aware pause, progress tracking, CLI exposure. Added Phase 11: Hardening & Evasion Resistance (6 tasks) — signature evasion testing across all layers, parser crash resilience, self-protection attack suite, heuristic boundary testing, emulator anti-analysis testing, update protocol attack suite. Renumbered old Phase 11 → Phase 12. Added P5-T7 (SIEM event shipper, L), P5-T8 (scheduled scanning, L), P12-T8 (SIEM integration test, L). 11 new integration test scenarios (#27–37). Updated repo structure with src/siem/ and tests/hardening/. Total: +9 tasks (67 → 76), +1 phase (12 → 13).
 
 ---
 
@@ -55,14 +55,14 @@ This document is organized into two parts. Part I captures the system requiremen
 |---|---|---|
 | akesoav.dll | Shared library | Core engine: scan pipeline, signature matching, heuristic engines, file parsers, emulator, unpacker, scan cache. C API boundary (akesoav.h). Thread-safe. Loaded by standalone tools and AkesoEDR agent. |
 | akavscan.exe | User (CLI) | Standalone scanner. Loads engine DLL, scans files/directories, prints results. JSON output. Recursive and archive-aware. |
-| akavservice.exe | User (service) | Standalone Windows service. Named pipe IPC. Thread pool. Pre-loads signatures. For independent testing without AkesoEDR. |
+| akesoav-service.exe | User (service) | Standalone Windows service. Named pipe IPC. Thread pool. Pre-loads signatures. For independent testing without AkesoEDR. |
 | pyakav | Python bindings | ctypes wrapper over C API. Automation, fuzzing harnesses, signature tooling, testing. |
 | akavdb-tool | Python CLI | Signature management: create, compile, import (ClamAV/YARA), sign, verify, test. |
 | akav-update.exe | User (client) | Secure signature update client. HTTPS + certificate pinning + RSA verification. |
 
 ### 3.2 Integration with AkesoEDR
 
-In integrated mode, the AkesoEDR agent loads akesoav.dll via `LoadLibrary` and resolves the C API functions via `GetProcAddress`. No separate service, no separate IPC — the engine runs in-process within akesoagent.exe.
+In integrated mode, the AkesoEDR agent loads akesoav.dll via `LoadLibrary` and resolves the C API functions via `GetProcAddress`. No separate service, no separate IPC — the engine runs in-process within akesoedr-agent.exe.
 
 **Cross-project dependency:** AkesoAV Phase 5 (EDR Integration) requires AkesoEDR Phase 5 (Filesystem Minifilter) to be operational. The EDR agent's event processor must have an extensible telemetry schema that accepts additional fields.
 
@@ -71,31 +71,32 @@ In integrated mode, the AkesoEDR agent loads akesoav.dll via `LoadLibrary` and r
 │                   Windows Test VM                           │
 │                                                            │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │              akesodrv.sys (kernel)                 │  │
+│  │              akesoedr-drv.sys (kernel)                │  │
 │  │  Process/Thread/Object/Image/Registry Callbacks      │  │
 │  │  Filesystem Minifilter (IRP_MJ_CREATE/WRITE)         │  │
 │  │  WFP Network Filter                                  │  │
 │  └────────────────────┬─────────────────────────────────┘  │
 │                       │ filter port + named pipe            │
 │  ┌────────────────────▼─────────────────────────────────┐  │
-│  │           akesoagent.exe (service)                 │  │
+│  │           akesoedr-agent.exe (service)                │  │
 │  │                                                      │  │
 │  │  ┌─────────────┐ ┌──────────────┐ ┌──────────────┐  │  │
 │  │  │ EDR Rule    │ │ AV Engine    │ │ DLP Engine   │  │  │
-│  │  │ Engine      │ │ (akesoav  │ │ (akesodlp │  │  │
+│  │  │ Engine      │ │ (akesoav     │ │ (akesodlp    │  │  │
 │  │  │ (built-in)  │ │  .dll)       │ │  .dll)       │  │  │
 │  │  └─────────────┘ └──────────────┘ └──────────────┘  │  │
 │  │                                                      │  │
 │  │  ┌─────────────┐ ┌──────────────┐ ┌──────────────┐  │  │
-│  │  │ ETW         │ │ AMSI         │ │ Hook DLL     │  │  │
-│  │  │ Consumer    │ │ Provider     │ │ (injected)   │  │  │
+│  │  │ ETW         │ │ AMSI Provider│ │ Hook DLL     │  │  │
+│  │  │ Consumer    │ │ (akesoedr-   │ │ (akesoedr-   │  │  │
+│  │  │             │ │  amsi.dll)   │ │  agent.dll)  │  │  │
 │  │  └─────────────┘ └──────────────┘ └──────────────┘  │  │
 │  │                                                      │  │
-│  │  Telemetry → JSON log / \\.\pipe\AkesoTelemetry   │  │
+│  │  Telemetry → JSON log / \\.\pipe\AkesoTelemetry      │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                            │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │  akeso-cli.exe / akavscan.exe                      │  │
+│  │  akesoedr-cli.exe / akavscan.exe                       │  │
 │  │  status | alerts | scan | rules | quarantine         │  │
 │  └──────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────┘
@@ -112,7 +113,7 @@ In integrated mode, the AkesoEDR agent loads akesoav.dll via `LoadLibrary` and r
 7. If AV detects malware: immediate alert, optional quarantine action
 8. Telemetry event written to JSON log and pipe
 
-**Graceful degradation:** If akesoav.dll fails to load at agent startup (missing DLL, version mismatch, signature verification failure), the EDR agent logs a warning and continues operating without AV scanning. All AV telemetry fields are set to their zero/empty defaults. The agent does not crash.
+**Graceful degradation:** If akesoav.dll fails to load at akesoedr-agent.exe startup (missing DLL, version mismatch, signature verification failure), the EDR agent logs a warning and continues operating without AV scanning. All AV telemetry fields are set to their zero/empty defaults. The agent does not crash.
 
 ### 3.3 Scan Pipeline
 
@@ -249,7 +250,7 @@ AkesoAV ships events to AkesoSIEM for centralized detection, correlation, and in
 **Batching:** Events buffered in a ring buffer (capacity 1000). Flushed to SIEM every 5 seconds or when buffer reaches 100 events, whichever comes first. If SIEM is unreachable, events accumulate in ring buffer. Buffer full → oldest events dropped with `av:event_dropped` counter incremented in STATS.
 
 **Standalone vs. Integrated mode:**
-- **Standalone** (akavservice.exe): The service itself ships events to the SIEM. Configure `siem_url` in config. Events are also written to a local JSONL log file (`%ProgramData%\Akeso\Logs\akesoav.jsonl`, 100MB rotation, 7-day retention).
+- **Standalone** (akesoav-service.exe): The service itself ships events to the SIEM. Configure `siem_url` in config. Events are also written to a local JSONL log file (`%ProgramData%\Akeso\Logs\akesoav.jsonl`, 100MB rotation, 7-day retention).
 - **Integrated** (akesoav.dll in EDR agent): AV events are emitted through the EDR agent's existing SIEM shipper. The AV fields are merged into the EDR telemetry event (§3.6) AND the engine emits standalone AV events (§3.7.1–3.7.5) through a callback the EDR agent registers. This ensures the SIEM receives both the enriched EDR+AV event and the dedicated AV event types for Sigma rule compatibility.
 
 **Common envelope** (per AkesoSIEM v2.4 §2):
@@ -282,7 +283,7 @@ Emitted on detection (clean results not forwarded by default; configurable).
   "payload": {
     "scan": {
       "result": "malicious",
-      "scanner_id": "savd",
+      "scanner_id": "akesoav-service",
       "scan_type": "on_access",
       "heuristic_score": 0.92,
       "duration_ms": 145
@@ -313,7 +314,7 @@ Emitted on detection (clean results not forwarded by default; configurable).
 }
 ```
 
-Field notes: `scan.result` values: malicious, suspicious, clean, error. `scan.scanner_id`: akavscan, savd, realtime, edr_integrated. `scan.scan_type`: on_demand, on_access, memory. `signature.engine`: hash_md5, hash_sha256, crc32, byte_stream, fuzzy_hash, graph, yara, heuristic. `process` populated only for on_access/memory scans.
+Field notes: `scan.result` values: malicious, suspicious, clean, error. `scan.scanner_id`: akavscan, akesoav-service, realtime, edr_integrated. `scan.scan_type`: on_demand, on_access, memory. `signature.engine`: hash_md5, hash_sha256, crc32, byte_stream, fuzzy_hash, graph, yara, heuristic. `process` populated only for on_access/memory scans.
 
 **ECS mapping** (applied by SIEM parser): `event.category: malware`, `event.type: info`, `file.*`, `file.hash.*`, `threat.indicator.type: file`, `av.scan.result`, `av.signature.name`
 
@@ -408,6 +409,56 @@ Emitted on scan failure (timeout, parser crash, resource limit).
 ```
 
 **ECS mapping:** `event.category: malware`, `event.type: error`, `event.outcome: failure`, `error.message`
+
+#### 3.7.7 `av:scheduled_scan_start`
+
+Emitted when a scheduled scan begins.
+
+```json
+{
+  "...common envelope...",
+  "event_type": "av:scheduled_scan_start",
+  "payload": {
+    "schedule": {
+      "name": "Weekly Full Scan",
+      "type": "full",
+      "paths": ["C:\\"],
+      "trigger": "cron"
+    }
+  }
+}
+```
+
+**ECS mapping:** `event.category: process`, `event.type: start`, `event.action: scheduled_scan_start`
+
+#### 3.7.8 `av:scheduled_scan_complete`
+
+Emitted when a scheduled scan finishes.
+
+```json
+{
+  "...common envelope...",
+  "event_type": "av:scheduled_scan_complete",
+  "payload": {
+    "schedule": {
+      "name": "Weekly Full Scan",
+      "type": "full",
+      "paths": ["C:\\"],
+      "trigger": "cron"
+    },
+    "result": {
+      "files_scanned": 142385,
+      "detections": 2,
+      "errors": 1,
+      "duration_ms": 3845200,
+      "cache_hits": 98412,
+      "bytes_scanned": 48291045376
+    }
+  }
+}
+```
+
+**ECS mapping:** `event.category: process`, `event.type: end`, `event.action: scheduled_scan_complete`
 
 #### 3.7.6 Local Log Output
 
@@ -570,7 +621,7 @@ typedef void (*akav_siem_callback_t)(const akav_siem_event_t *event, void *user_
 
 /* Register callback invoked on every emittable event. In integrated mode, the
  * EDR agent registers this to route AV events through its own SIEM shipper.
- * In standalone mode, akavservice.exe registers its own HTTP+JSONL shipper.
+ * In standalone mode, akesoav-service.exe registers its own HTTP+JSONL shipper.
  * Passing NULL disables SIEM output. */
 AKAV_API akav_error_t akav_set_siem_callback(akav_engine_t *engine,
                                            akav_siem_callback_t callback,
@@ -582,6 +633,17 @@ AKAV_API akav_error_t akav_siem_start_http_shipper(akav_engine_t *engine,
                                                   const char *siem_url,
                                                   const char *api_key);
 AKAV_API akav_error_t akav_siem_stop_http_shipper(akav_engine_t *engine);
+
+/* ── Scheduled scanning ── */
+AKAV_API akav_error_t akav_schedule_load(akav_engine_t *engine, const char *config_path);
+AKAV_API akav_error_t akav_schedule_start(akav_engine_t *engine);   /* Start scheduler thread */
+AKAV_API akav_error_t akav_schedule_stop(akav_engine_t *engine);    /* Stop scheduler thread */
+AKAV_API akav_error_t akav_schedule_run_now(akav_engine_t *engine, const char *schedule_name);
+AKAV_API akav_error_t akav_schedule_status(akav_engine_t *engine,
+                                         int *active,            /* 1 if scan running */
+                                         int *progress_pct,      /* 0-100 estimated */
+                                         int64_t *files_scanned,
+                                         int *detections);
 
 /* ── Defaults ── */
 AKAV_API void akav_scan_options_default(akav_scan_options_t *opts);
@@ -719,14 +781,14 @@ Scores API call sequences observed during x86 emulation. Runs only when scan_pac
 | Manifest | JSON: version (uint32), published_at (ISO 8601), minimum_engine_version, files[] array with name/url/sha256/rsa_signature/size/type(full or delta), manifest_signature (RSA sig covering all fields except itself). |
 | Verification | SHA-256 of downloaded files via CNG BCryptHash. RSA-2048 signature via CNG BCryptVerifySignature. Public key embedded in akesoav.dll at compile time (no TOFU). |
 | Installation | Write to .akavdb.new. Verify. MoveFileEx(MOVEFILE_REPLACE_EXISTING) for atomic swap. Keep .akavdb.prev for rollback. Send RELOAD to service or call akav_engine_load_signatures() in integrated mode. |
-| Distribution | Git-based: akavdb-tool compiles from Git repo. akeso-cli rules update pulls, validates, recompiles. Same repo as EDR YAML rules. |
+| Distribution | Git-based: akavdb-tool compiles from Git repo. akesoedr-cli rules update pulls, validates, recompiles. Same repo as EDR YAML rules. |
 
 ### 5.11 Self-Protection
 
 | Aspect | Requirement |
 |---|---|
 | Standalone Service | Set service security descriptor to deny PROCESS_TERMINATE from non-admin. Set DACL on service process handle. |
-| Integrated | Inherits AkesoEDR ObRegisterCallbacks protection (strips PROCESS_TERMINATE/VM_WRITE from non-protected callers targeting agent PID). |
+| Integrated | Inherits AkesoEDR ObRegisterCallbacks protection (akesoedr-drv.sys strips PROCESS_TERMINATE/VM_WRITE from non-protected callers targeting akesoedr-agent.exe PID). |
 | File Integrity | WinVerifyTrust Authenticode check on akesoav.dll and all plugins at load time. SHA-256 hash of all engine files computed at startup, stored in memory, re-checked on configurable interval (default 60s). |
 | Watchdog (standalone) | Separate watchdog.exe process. Named pipe PING/PONG heartbeat (5s interval, 15s timeout). Auto-restart via CreateProcess on crash or hang. |
 | Config | HKLM\SOFTWARE\Akeso\AV with restricted ACL (SYSTEM + Administrators). |
@@ -740,7 +802,23 @@ Scores API call sequences observed during x86 emulation. Runs only when scan_pac
 | Index | SQLite: quarantine.db with columns (id TEXT PK, original_path TEXT, malware_name TEXT, signature_id TEXT, timestamp INTEGER, sha256 TEXT, file_size INTEGER, user_sid TEXT). |
 | Operations | Quarantine: encrypt + move + index. Restore: decrypt + write to original or specified path + remove index entry. List: query index. Delete: remove .sqz + index entry. Purge: delete entries older than N days. |
 | ACL | Vault directory: SYSTEM + Administrators only. Quarantined files stripped of all execute permissions. |
-| CLI | akavscan --quarantine list/restore/delete/purge. akeso-cli quarantine list/restore/delete/purge. |
+| CLI | akavscan --quarantine list/restore/delete/purge. akesoedr-cli quarantine list/restore/delete/purge. |
+
+### 5.13 Scheduled Scanning
+
+The standalone service (akesoav-service.exe) includes a built-in scheduler for recurring automated scans. In integrated mode, the EDR agent can invoke scheduled scans via the C API on its own timer.
+
+| Aspect | Requirement |
+|---|---|
+| Schedule Config | JSON config file (`%ProgramData%\Akeso\schedules.json`) or registry key (`HKLM\SOFTWARE\Akeso\AV\Schedules`). Array of schedule entries. Hot-reloadable via RELOAD command. |
+| Schedule Entry | `{ "name": "Weekly Full", "type": "full", "paths": ["C:\\"], "cron": "0 2 * * 0", "enabled": true }` — name, scan type, target paths, cron expression (minute hour day month weekday), enabled flag. |
+| Scan Types | **Quick Scan:** Targets high-risk paths only — %TEMP%, %USERPROFILE%\Downloads, %APPDATA%, %PROGRAMDATA%, C:\Windows\Startup, C:\Users\*\AppData\Local\Temp. Completes in minutes. **Full Scan:** All fixed drives (GetLogicalDriveStrings, DRIVE_FIXED). Excludes configured path exclusions (§5.4). May take hours. **Custom Scan:** Arbitrary path list from config. |
+| I/O Throttling | Scheduled scans run at below-normal I/O priority via `SetThreadPriority(THREAD_MODE_BACKGROUND_BEGIN)` to avoid impacting the user. CPU affinity limited to 50% of available cores (configurable). Scan pauses if system is on battery power (GetSystemPowerStatus). Resumes on AC power. |
+| Concurrency | Only one scheduled scan runs at a time. If a scan is already in progress when the next schedule triggers, the new scan is skipped and logged. On-access scans from the minifilter are not affected — they run concurrently in the normal thread pool. |
+| Progress | Scan progress tracked: files scanned, files remaining (estimated from directory enumeration), elapsed time, detections so far. Exposed via STATS command (`scheduled_scan_active`, `scheduled_scan_progress`). |
+| Completion | On completion, emit `av:scheduled_scan_complete` event to SIEM (§3.7.7) with summary: scan type, paths, files scanned, detections, duration, errors. If detections found, also emit individual `av:scan_result` events per detection. |
+| CLI | `akavscan --schedule list` (show configured schedules), `akavscan --schedule run <name>` (trigger a named schedule immediately), `akavscan --schedule next` (show next scheduled scan time). `akesoedr-cli scan schedule list/run/next`. |
+| Default Schedules | Install script (P10-T5) creates two default schedules: Quick Scan daily at 12:00 (noon), Full Scan weekly Sunday at 02:00. Both enabled by default. |
 
 ## 6. Integration Test Plan
 
@@ -779,6 +857,14 @@ Scores API call sequences observed during x86 emulation. Runs only when scan_pac
 | 31 | SIEM: scan error event | Scan a 500MB timeout-inducing file | av:scan_error event received with reason=timeout |
 | 32 | SIEM: JSONL local log | All scan activity | akesoav.jsonl contains all emitted events, matches SIEM-shipped format |
 | 33 | SIEM: cross-product correlation | EICAR drop + EDR process event | SIEM receives both akeso_edr and akeso_av events; Sigma cross-source rule fires |
+| 34 | Quick scan completes | Trigger quick scan via CLI | High-risk paths scanned. Detections in %TEMP% found. av:scheduled_scan_complete event with correct summary. |
+| 35 | Full scan with throttling | Trigger full scan, monitor CPU | CPU usage stays <50%. Scan completes. All fixed drives covered. |
+| 36 | Scan pauses on battery | Simulate battery mode during scan | Scan pauses. Resumes on AC. No data loss. |
+| 37 | Schedule cron trigger | Configure "every minute" test cron | Scan auto-triggers within 60s. av:scheduled_scan_start event emitted. |
+| 38 | AMSI: malicious PowerShell blocked | Paste Invoke-Mimikatz into PS | Execution blocked. av:scan_result with scan_type=amsi emitted. |
+| 39 | AMSI: benign PowerShell allowed | Run Get-Process, Get-ChildItem | No block. No detection event. Latency <10ms. |
+| 40 | AMSI: .NET reflection blocked | Reflective load of Seatbelt assembly | Blocked. av:scan_result with amsi:dotnet source. |
+| 41 | AMSI: bypass attempt detected | Script patches AmsiScanBuffer | Detected by YARA rule. av:scan_result emitted. |
 
 ## 7. Feature Priority Matrix
 
@@ -799,6 +885,8 @@ Scores API call sequences observed during x86 emulation. Runs only when scan_pac
 | Windows service | P1 | P5 | Ch. 1 |
 | EDR integration shim | P1 | P5 | — |
 | Quarantine | P1 | P5 | Ch. 1 |
+| Scheduled scanning (quick/full/custom) | P1 | P5 | Ch. 1 |
+| AMSI content scanning (via EDR provider) | P1 | P5 | Ch. 10 |
 | Whitelist/exclusions | P1 | P5 | — |
 | ELF/PDF/OLE2 parsers | P1 | P7 | Ch. 1, 3 |
 | Fuzzy hash | P1 | P6 | Ch. 4 |
@@ -855,7 +943,7 @@ akesoav/
 │   ├── plugin/                      # plugin_loader (LoadLibrary)
 │   ├── database/                    # sigdb (CreateFileMapping reader)
 │   ├── cli/akavscan.c               # CLI scanner
-│   └── service/akavservice.cpp       # Windows service + named pipe
+│   └── service/akesoav_service.cpp       # Windows service + named pipe
 ├── integration/
 │   └── edr_shim.cpp/.h             # AkesoEDR integration
 ├── bindings/python/                 # pyakav.py + tests
@@ -913,7 +1001,7 @@ akesoav/
 
 ## 11. How To Use Part II With Claude Code
 
-75 tasks across 13 phases. Estimated 48–68 Claude Code sessions.
+77 tasks across 13 phases. Estimated 50–70 Claude Code sessions.
 
 **Complexity:** S (<200 lines, 1 session), M (200–600, 1 session), L (500–1500, 2–3 sessions), XL (cross-component, 2–4 sessions).
 
@@ -1012,11 +1100,13 @@ akesoav/
 |---|---|---|---|---|
 | P5-T1 | Scan cache: hash map (path+timestamp+size→result), SRWLOCK reader-writer, LRU eviction at 50K, invalidation on file change, clear on sig reload. akav_cache_clear/stats API. | src/scan_cache.cpp/.h | Cache hit on unchanged re-scan (cached=1, time≈0). Modified file→miss. Reload→cleared. Stats correct. Two threads→no race. | L |
 | P5-T2 | Whitelist/exclusions: hash whitelist (from .akavdb section + runtime), path prefix exclusion, Authenticode signer trust (WinVerifyTrust). Pipeline integration per §5.4. | src/whitelist.cpp/.h | MS-signed calc.exe→in_whitelist=1, skip scan. Path-excluded file→not scanned. SHA-256 whitelisted→skip. | M |
-| P5-T3 | akavservice.exe: SCM registration, named pipe (\\.\pipe\AkesoAVScan), thread pool (_beginthreadex), full protocol (§3.5 including STATS with cache hits), sig preload, graceful shutdown. | src/service/akavservice.cpp | sc start works. SCAN eicar→detected. 4 concurrent clients→all correct. STATS shows cache hits. SIGTERM→clean shutdown. | L |
-| P5-T4 | EDR integration shim: LoadLibrary akesoav.dll at agent startup, resolve all C API symbols via GetProcAddress, AVEngine wrapper class (init, scan, reload, shutdown), scan dispatch from minifilter file events with 5s timeout (worker thread + WaitForSingleObject), scan cache check before scan call, merge AV fields into telemetry struct, graceful degradation on DLL load failure. | integration/edr_shim.cpp/.h | EICAR drop with EDR→av_detected in telemetry JSON. Alert fires. DLL removed→EDR agent starts without AV, warning logged. Re-scan of unchanged file→cached=1. Scan >5s→timeout, warning. | XL |
+| P5-T3 | akesoav-service.exe: SCM registration, named pipe (\\.\pipe\AkesoAVScan), thread pool (_beginthreadex), full protocol (§3.5 including STATS with cache hits), sig preload, graceful shutdown. | src/service/akesoav_service.cpp | sc start works. SCAN eicar→detected. 4 concurrent clients→all correct. STATS shows cache hits. SIGTERM→clean shutdown. | L |
+| P5-T4 | EDR integration shim: LoadLibrary akesoav.dll at akesoedr-agent.exe startup, resolve all C API symbols via GetProcAddress, AVEngine wrapper class (init, scan, reload, shutdown), scan dispatch from minifilter (akesoedr-drv.sys) file events with 5s timeout (worker thread + WaitForSingleObject), scan cache check before scan call, merge AV fields into telemetry struct, graceful degradation on DLL load failure. AV config path read from akesoedr.conf [av] section. | integration/edr_shim.cpp/.h | EICAR drop with EDR→av_detected in telemetry JSON. Alert fires. DLL removed→akesoedr-agent.exe starts without AV, warning logged. Re-scan of unchanged file→cached=1. Scan >5s→timeout, warning. | XL |
 | P5-T5 | Quarantine: CNG AES-256-GCM, DPAPI key, SQLite index per §5.12, all operations, ACLs. | src/quarantine/quarantine.cpp/.h | Quarantine→encrypted .sqz + index row. Restore matches original SHA-256. ACL correct (SYSTEM+Admins). Purge works. | M |
 | P5-T6 | EDR YAML rules using AV fields: "malware dropped by Office app" (process callback + minifilter + av_detected), "heuristic suspicious from browser" (av_heuristic_score >50 + parent=browser), "AV match + process injection" (av_detected + NtCreateThreadEx remote=true sequence). | rules/av_enhanced_detection.yaml | Rules fire during integrated test scenarios. No FP in 30-min clean baseline. | M |
-| P5-T7 | SIEM event shipper: akav_siem_event_t struct, akav_siem_callback_t callback registration, built-in HTTP shipper (WinHTTP, NDJSON batching — 100 events or 5s flush, ring buffer 1000, X-API-Key header), JSONL local log writer (100MB rotation), event serialization for all 5 event types per §3.7. In standalone mode: akavservice registers HTTP shipper + JSONL writer. In integrated mode: EDR agent registers callback routing to its own shipper. | src/siem/siem_shipper.cpp/.h, src/siem/jsonl_writer.cpp/.h, src/siem/event_serialize.cpp/.h | EICAR scan→av:scan_result event received at test SIEM endpoint (Python HTTP listener validates JSON schema). Quarantine action→av:quarantine event. SIEM unreachable→events buffered, delivered on reconnect (up to ring buffer capacity). JSONL file written with correct rotation. Integrated mode: callback invoked with correct event. | L |
+| P5-T7 | SIEM event shipper: akav_siem_event_t struct, akav_siem_callback_t callback registration, built-in HTTP shipper (WinHTTP, NDJSON batching — 100 events or 5s flush, ring buffer 1000, X-API-Key header), JSONL local log writer (100MB rotation), event serialization for all 5 event types per §3.7. In standalone mode: akesoav-service registers HTTP shipper + JSONL writer. In integrated mode: EDR agent registers callback routing to its own shipper. | src/siem/siem_shipper.cpp/.h, src/siem/jsonl_writer.cpp/.h, src/siem/event_serialize.cpp/.h | EICAR scan→av:scan_result event received at test SIEM endpoint (Python HTTP listener validates JSON schema). Quarantine action→av:quarantine event. SIEM unreachable→events buffered, delivered on reconnect (up to ring buffer capacity). JSONL file written with correct rotation. Integrated mode: callback invoked with correct event. | L |
+| P5-T8 | Scheduled scanning: scheduler thread in akesoav-service.exe, cron expression parser (minute/hour/day/month/weekday), schedule config loader (JSON from %ProgramData%\Akeso\schedules.json), quick scan (high-risk paths per §5.13) vs full scan (all fixed drives) vs custom scan, I/O throttling (SetThreadPriority THREAD_MODE_BACKGROUND_BEGIN, CPU affinity cap at 50%), battery-aware pause (GetSystemPowerStatus), progress tracking (files scanned/remaining/elapsed/detections), concurrency guard (one scheduled scan at a time), av:scheduled_scan_start + av:scheduled_scan_complete SIEM events (§3.7.7–3.7.8), CLI exposure (akavscan --schedule list/run/next), STATS integration (scheduled_scan_active, scheduled_scan_progress). Default schedules created by install script. | src/service/scheduler.cpp/.h, src/service/cron_parser.cpp/.h | Quick scan of %TEMP%+Downloads completes in <5 min on test VM. Full scan throttled — CPU usage stays below 50%. Battery mode→scan pauses (simulate with powercfg). Cron "0 2 * * 0"→next trigger is Sunday 02:00. SIEM receives start+complete events with correct summary. Concurrent trigger→second scan skipped and logged. akavscan --schedule list shows configured schedules. | L |
+| P5-T9 | AMSI content scanning: In the EDR agent's existing AMSI provider (akesoedr-amsi.dll, AkesoEDR P7-T4), add a call to akav_scan_buffer() on the content buffer received from AmsiScanBuffer. The buffer name is set to "amsi:<source>" where source is powershell, dotnet, vbscript, jscript, or vba (derived from AMSI's appName parameter). If akav_scan_buffer returns found=1, the AMSI provider returns AMSI_RESULT_DETECTED (blocking execution). Results emitted as av:scan_result events with scan_type="amsi" and scanner_id="amsi_provider". Add AMSI-targeted YARA rules: Invoke-Mimikatz, Invoke-Expression+DownloadString chain, [Reflection.Assembly]::Load patterns, AmsiScanBuffer patching attempts (reading amsi.dll base + offset writes), amsiInitFailed variable set. | integration/edr_amsi_av.cpp, yara-rules/amsi_scripts.yar | Paste Invoke-Mimikatz into PowerShell→blocked. av:scan_result event emitted with scan_type=amsi, signature.engine=yara. Paste benign script→allowed, no event. .NET reflection load of Seatbelt→blocked by YARA rule. AMSI bypass attempt (patching AmsiScanBuffer)→detected by YARA + heuristic string match. Clean PowerShell commands (Get-Process, dir)→no detection, no latency >10ms. | L |
 
 ---
 
@@ -1095,7 +1185,7 @@ akesoav/
 |---|---|---|---|---|
 | P11-T1 | Signature evasion test suite: (a) Take a hash-signatured PE (MD5 match), modify one byte at EOF → verify hash match FAILS but byte-stream sig still DETECTS. (b) Take a byte-stream-signatured PE, pack it with UPX → verify byte-stream FAILS on packed file but unpacker + re-scan DETECTS. (c) Take a graph-signatured PE, reorder functions + insert NOP sleds → verify byte-stream FAILS but graph sig still DETECTS (similarity >70%). (d) Take a fuzzy-hash-signatured PE, modify 5% of bytes → verify exact hash FAILS but fuzzy hash DETECTS (similarity >80%). Automated test script exercises all 4 evasion scenarios. | tests/hardening/test_sig_evasion.ps1, tests/hardening/evasion_samples/ (crafted) | All 4 evasion scenarios pass: cheaper layer fails, more expensive layer catches. Each scenario logs which layer detected and which was bypassed. | L |
 | P11-T2 | Parser crash resilience: (a) Craft a PE that crashes the PE parser (malformed optional header with integer overflow in SizeOfHeaders) — verify pipeline catches SEH exception, populates warnings[], remaining stages (byte-stream, YARA) still run on raw bytes, and result is not AKAV_OK (either detection from later stage or AKAV_SCAN_ERROR). (b) Craft a ZIP where entry 1 is a zip bomb (triggers AKAV_ERROR_BOMB) and entry 2 contains EICAR — verify entry 2 is still scanned and EICAR detected. (c) Craft a PDF with malformed xref that triggers parser error + valid JavaScript stream — verify JS extraction from fallback still works or raw-byte sig matches. | tests/hardening/test_parser_resilience.cpp (GTest), tests/hardening/crafted_crash_pe.py (generator) | (a) PE parser error in warnings[], byte-stream or YARA catches malware in raw bytes. No process crash. (b) EICAR in entry 2 detected despite bomb in entry 1. (c) PDF pipeline degrades gracefully — either JS extracted or raw-byte sig fires. | L |
-| P11-T3 | Self-protection attack suite: (a) From a medium-integrity (non-admin) process, attempt TerminateProcess on akavservice.exe PID → verify ACCESS_DENIED. (b) From a medium-integrity process, attempt OpenProcess with PROCESS_VM_WRITE on akavservice.exe → verify denied. (c) Replace akesoav.dll on disk with a tampered copy (append 1 byte) while service is running → verify SHA-256 integrity monitor detects within 60s, logs alert, and refuses to use tampered DLL on next RELOAD. (d) Corrupt akeso.akavdb on disk (flip one byte in RSA signature region) → call RELOAD → verify engine rejects corrupted DB and falls back to .akavdb.prev. (e) Kill akavservice.exe via taskkill /F /PID → verify watchdog restarts it within 20s. | tests/hardening/test_self_protection.ps1 | (a) TerminateProcess→ACCESS_DENIED. (b) OpenProcess→denied. (c) Tampered DLL→integrity alert within 60s. (d) Corrupt DB→RELOAD fails, prev restored, scanning continues with old sigs. (e) Kill→restarted <20s. | L |
+| P11-T3 | Self-protection attack suite: (a) From a medium-integrity (non-admin) process, attempt TerminateProcess on akesoav-service.exe PID → verify ACCESS_DENIED. (b) From a medium-integrity process, attempt OpenProcess with PROCESS_VM_WRITE on akesoav-service.exe → verify denied. (c) Replace akesoav.dll on disk with a tampered copy (append 1 byte) while service is running → verify SHA-256 integrity monitor detects within 60s, logs alert, and refuses to use tampered DLL on next RELOAD. (d) Corrupt akeso.akavdb on disk (flip one byte in RSA signature region) → call RELOAD → verify engine rejects corrupted DB and falls back to .akavdb.prev. (e) Kill akesoav-service.exe via taskkill /F /PID → verify watchdog restarts it within 20s. | tests/hardening/test_self_protection.ps1 | (a) TerminateProcess→ACCESS_DENIED. (b) OpenProcess→denied. (c) Tampered DLL→integrity alert within 60s. (d) Corrupt DB→RELOAD fails, prev restored, scanning continues with old sigs. (e) Kill→restarted <20s. | L |
 | P11-T4 | Heuristic evasion boundary testing: (a) Craft a PE that triggers exactly the Medium threshold (score=75): 3 suspicious imports (+35) + W+X .text (+20) + high entropy (+20) = 75 → verify DETECTED at Medium, NOT detected at Low. (b) Craft a PE that scores 74 → verify NOT detected at Medium. (c) Craft a clean PE that resembles packed malware (high entropy resources, UPX-like section names, but legitimate signed binary) → verify NOT detected at any level (FP test). (d) Run ML classifier against full clean system32 directory → verify FP rate <5%. | tests/hardening/test_heuristic_evasion.cpp (GTest), tests/hardening/crafted_heuristic_pes.py (generator) | (a) Score=75→detected at Medium. (b) Score=74→not detected at Medium. (c) Clean signed PE with suspicious appearance→not detected. (d) system32 FP rate <5%. | M |
 | P11-T5 | Emulator evasion & anti-analysis testing: (a) Craft a PE with RDTSC-based timing check (two RDTSC calls, if delta < threshold → real hardware, else → emulated, branch to different code) → verify emulator's RDTSC returns plausible monotonic values and the packed PE still unpacks correctly. (b) Craft a PE that checks IsDebuggerPresent via PEB.BeingDebugged at fs:[0x30]+0x02 → verify emulator returns 0, execution continues normally. (c) Craft a PE that issues CPUID and validates vendor string → verify emulator returns "GenuineIntel". (d) Craft a PE that uses SEH-based control flow (intentional divide-by-zero, handler transfers to unpack routine) → verify emulator dispatches SEH correctly and unpacking completes. | tests/hardening/test_emu_evasion.cpp (GTest), tests/hardening/emu_evasion_samples/ (NASM-assembled test PEs) | (a) Timing check doesn't prevent unpacking. (b) IsDebuggerPresent returns 0. (c) CPUID vendor = "GenuineIntel". (d) SEH handler runs, unpack completes, re-scan detects payload. | L |
 | P11-T6 | Update protocol attack suite: (a) Set up MITM proxy (mitmproxy), intercept update HTTPS connection → verify cert pinning rejects the proxy's certificate. (b) Serve a valid manifest but tampered .akavdb file (correct SHA-256 in manifest but wrong RSA signature on file) → verify engine rejects the file. (c) Serve a valid manifest with correct hashes but replay an old manifest version (version < current) → verify engine ignores the downgrade. (d) Remove the HTTPS test server entirely → verify engine retries, eventually times out, and continues operating with existing signatures (no crash, no data loss). | tests/hardening/test_update_attacks.py (Python + mitmproxy/mock HTTPS server) | (a) Pinning rejects MITM cert. (b) Bad RSA sig→file rejected, existing DB retained. (c) Old version→ignored. (d) Server down→timeout, engine continues, no crash. | L |
@@ -1108,7 +1198,7 @@ akesoav/
 
 | ID | Task | Files | Acceptance Criteria | Est. |
 |---|---|---|---|---|
-| P12-T1 | Full integration test: all 33 scenarios from §6. Both standalone and integrated modes. | tests/integration/test_full_system.ps1 | ≥1 detection per scenario. Zero FP in 30-min clean Win11 baseline. Both modes produce identical detection results for same corpus. | L |
+| P12-T1 | Full integration test: all 41 scenarios from §6. Both standalone and integrated modes. | tests/integration/test_full_system.ps1 | ≥1 detection per scenario. Zero FP in 30-min clean Win11 baseline. Both modes produce identical detection results for same corpus. Scheduled scans and AMSI scans complete in both modes. | L |
 | P12-T2 | Ch. 13 cross-validation: run AkesoEDR Ch. 13 attack chain with AV engine loaded. Verify AV fields in telemetry for XLL drop, shellcode runner PE, beacon DLL. | tests/integration/ch13_av_validation.ps1 | AV detections correlate with EDR behavioral alerts for ≥3 of 8 attack phases. Combined AV+EDR YAML rules fire. | L |
 | P12-T3 | Performance benchmark: 10K mixed-file corpus. Throughput (files/sec), peak memory (working set), p50/p95/p99 per-file latency. ClamAV (clamscan) comparison on same corpus. Integrated-mode overhead measurement (EDR agent latency with vs without AV). Cache hit rate after second pass. | scripts/benchmark.py, docs/benchmark_report.md | Reproducible numbers. ClamAV comparison table. Integrated latency <2x standalone. Cache hit rate >90% on second pass. Top-5 hotspots identified. | M |
 | P12-T4 | Architecture documentation: component diagrams, scan pipeline data flow, .akavdb format, EDR integration, SIEM telemetry flow, design rationale per Handbook chapters. | docs/architecture.md | Another developer understands the full architecture from docs alone. | M |
@@ -1128,7 +1218,7 @@ akesoav/
 | P2 | PE Parser | 4 | P0 (SafeReader) | Ch. 1, 3 | Core |
 | P3 | Archives + Python | 5 | P0, P1 | Ch. 1–2 | Core |
 | P4 | Static Heuristics | 5 | P2 (PE parser) | Ch. 3 | Intermediate |
-| P5 | Service + EDR + Cache + SIEM | 7 | P1, P2, P3; **EDR P5** | Ch. 1–2 | Intermediate |
+| P5 | Service + EDR + Cache + SIEM + Scheduler + AMSI | 9 | P1, P2, P3; **EDR P5, P7** | Ch. 1–2, 10 | Intermediate |
 | P6 | Fuzzy Hash + UPX + Plugins | 3 | P1, P2 | Ch. 3–4 | Intermediate |
 | P7 | ELF + PDF + OLE2 Parsers | 4 | P0 (SafeReader) | Ch. 1, 3 | Intermediate |
 | P8 | x86 Emulator | 5 | P2 (PE parser) | Ch. 3 | Advanced |
@@ -1136,7 +1226,7 @@ akesoav/
 | P10 | Update + Self-Protect + OOXML | 5 | P5 (service) | Ch. 1, 5 | Advanced |
 | P11 | Hardening & Evasion Resistance | 6 | P1–P10 (all engines) | Ch. 6–9 | Advanced |
 | P12 | Integration + Benchmarks + Docs + SIEM | 8 | All | — | Validation |
-| **Total** | | **75 tasks** | | | **~48–68 sessions** |
+| **Total** | | **77 tasks** | | | **~50–70 sessions** |
 
 ---
 
@@ -1146,7 +1236,7 @@ akesoav/
 
 **Parsers:** All reads through SafeReader. No raw pointer arithmetic. Integer overflow checks (`if (a > SIZE_MAX - b) return error`). /analyze + SAL on all functions. clang-cl fuzz targets for every parser.
 
-**CLI + Service:** C17 for akavscan.c. C++20 for akavservice.cpp. Win32: CreateNamedPipe, _beginthreadex, overlapped I/O. JSON via snprintf (no external JSON library).
+**CLI + Service:** C17 for akavscan.c. C++20 for akesoav_service.cpp. Win32: CreateNamedPipe, _beginthreadex, overlapped I/O. JSON via snprintf (no external JSON library).
 
 **Python:** ctypes loading akesoav.dll. cryptography for RSA signing in akavdb-tool. pyyaml for sig definitions.
 
@@ -1160,6 +1250,6 @@ akesoav/
 
 ## v2 Roadmap
 
-**v2 Candidates:** AMSI content scanning (EDR AMSI → akav_scan_buffer) · Memory scanning (EDR memory scanner → akav_scan_buffer for unbacked RX regions) · Network stream scanning (WFP → AV for HTTP response bodies) · Linux native build · Duktape JS sandbox for PDF analysis · Cloud reputation / prevalence scoring · Full x86-64 emulation · Honeypot files · AkesoDLP content inspection in scan pipeline · Certificate chain analysis (revocation, abused certs) · Sliding-window entropy profiling · API call sequence signatures
+**v2 Candidates:** Memory scanning (EDR memory scanner → akav_scan_buffer for unbacked RX regions) · Network stream scanning (WFP → AV for HTTP response bodies) · Linux native build · Duktape JS sandbox for PDF analysis · Cloud reputation / prevalence scoring · Full x86-64 emulation · Honeypot files · AkesoDLP content inspection in scan pipeline · Certificate chain analysis (revocation, abused certs) · Sliding-window entropy profiling · API call sequence signatures
 
-**v1 Prep for v2:** akav_scan_buffer() accepts any byte array (AMSI, memory, network). C API stable — new call sites, not new engine code. Plugin architecture extensible. .akavdb format supports reserved section types 9–255. EDR telemetry schema has reserved fields for DLP verdict.
+**v1 Prep for v2:** akav_scan_buffer() accepts any byte array (AMSI ✓, memory, network). C API stable — new call sites, not new engine code. Plugin architecture extensible. .akavdb format supports reserved section types 9–255. EDR telemetry schema has reserved fields for DLP verdict.
