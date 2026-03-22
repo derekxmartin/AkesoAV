@@ -64,6 +64,7 @@ set(AKAV_ENGINE_SOURCES
     src/signatures/hash_matcher.cpp
     src/signatures/crc_matcher.cpp
     src/signatures/aho_corasick.cpp
+    src/signatures/fuzzy_hash.cpp
     src/database/sigdb.cpp
     src/scanner.cpp
     src/parsers/zip.cpp
@@ -106,6 +107,10 @@ set_target_properties(akesoav PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 add_executable(akavscan src/cli/akavscan.c)
 target_link_libraries(akavscan PRIVATE akesoav_core)
 target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
+
+# ── create_test_db.exe (test .akavdb generator utility) ──
+add_executable(create_test_db scripts/create_test_db.cpp)
+target_link_libraries(create_test_db PRIVATE akesoav_core)
 
 # ── akesoav-service.exe (Windows service + named pipe) ──
 add_executable(akesoav-service src/service/akesoav_service.cpp)
@@ -179,6 +184,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_quarantine.cpp
         tests/unit/test_siem.cpp
         tests/unit/test_scheduler.cpp
+        tests/unit/test_fuzzy_hash.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

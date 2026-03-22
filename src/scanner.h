@@ -7,6 +7,7 @@
 #include "signatures/hash_matcher.h"
 #include "signatures/crc_matcher.h"
 #include "signatures/aho_corasick.h"
+#include "signatures/fuzzy_hash.h"
 #include "heuristics/static_analyzer.h"
 #include "heuristics/entropy.h"
 #include "heuristics/imports.h"
@@ -26,8 +27,9 @@ typedef enum {
     AKAV_STAGE_MD5          = 1,
     AKAV_STAGE_SHA256       = 2,
     AKAV_STAGE_CRC32        = 3,
-    AKAV_STAGE_AHO_CORASICK = 4,
-    AKAV_STAGE_COUNT        = 5
+    AKAV_STAGE_FUZZY_HASH   = 4,
+    AKAV_STAGE_AHO_CORASICK = 5,
+    AKAV_STAGE_COUNT        = 6
 } akav_scan_stage_t;
 
 /* ── Scan pipeline ───────────────────────────────────────────────── */
@@ -47,6 +49,9 @@ typedef struct {
 
     akav_crc_matcher_t   crc_matcher;
     bool                 crc_loaded;
+
+    akav_fuzzy_matcher_t fuzzy_matcher;
+    bool                 fuzzy_loaded;
 
     akav_ac_t*           ac;
     bool                 ac_loaded;
@@ -92,7 +97,7 @@ akav_error_t akav_scanner_load_memory(akav_scanner_t* scanner,
 /**
  * Run the full scan pipeline on a buffer.
  *
- * Pipeline order: Bloom → MD5 → SHA256 → CRC32 → Aho-Corasick
+ * Pipeline order: Bloom → MD5 → SHA256 → CRC32 → Fuzzy → Aho-Corasick
  * Short-circuits on first detection.
  * On stage error: records warning, skips stage, continues.
  *
