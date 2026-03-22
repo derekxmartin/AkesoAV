@@ -122,6 +122,16 @@ target_include_directories(akesoav_edr_shim
 )
 target_compile_options(akesoav_edr_shim PRIVATE ${AKAV_WARNING_FLAGS})
 
+# ── AMSI content scanner (static lib for EDR AMSI provider) ──
+add_library(akesoav_amsi_scanner STATIC
+    integration/edr_amsi_av.cpp
+    integration/edr_amsi_av.h
+)
+target_include_directories(akesoav_amsi_scanner
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/integration>
+)
+target_compile_options(akesoav_amsi_scanner PRIVATE ${AKAV_WARNING_FLAGS})
+
 # ── Rule evaluator (for EDR YAML detection rules) ──
 add_library(akesoav_rule_evaluator STATIC
     rules/rule_evaluator.cpp
@@ -223,6 +233,20 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     add_dependencies(akesoav_edr_shim_tests akesoav)
 
     gtest_discover_tests(akesoav_edr_shim_tests
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+
+    # ── AMSI scanner tests ──
+    add_executable(akesoav_amsi_tests
+        tests/unit/test_amsi.cpp
+    )
+    target_link_libraries(akesoav_amsi_tests PRIVATE
+        akesoav_amsi_scanner
+        GTest::gtest_main
+    )
+    target_compile_options(akesoav_amsi_tests PRIVATE ${AKAV_WARNING_FLAGS})
+
+    gtest_discover_tests(akesoav_amsi_tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
 endif()
