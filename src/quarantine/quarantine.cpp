@@ -776,7 +776,7 @@ std::string Quarantine::quarantine_file(const char* file_path,
         /* Not fatal — file is quarantined even if original remains */
     }
 
-    q_log("info", "Quarantined '%s' → %s.sqz (%s)",
+    q_log("info", "Quarantined '%s' -> %s.sqz (%s)",
           file_path, vid.c_str(), malware_name ? malware_name : "");
 
     return vid;
@@ -821,7 +821,7 @@ bool Quarantine::restore_file(const char* vault_id, const char* restore_path)
     DeleteFileA(sqz.c_str());
     remove_entry(vault_id);
 
-    q_log("info", "Restored '%s' → '%s'", vault_id, target.c_str());
+    q_log("info", "Restored '%s' -> '%s'", vault_id, target.c_str());
     return true;
 }
 
