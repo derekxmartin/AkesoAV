@@ -469,3 +469,187 @@ TEST(EntropyAnalyzer, CodeSectionNotNamedText) {
     /* Should detect high entropy in the code section even though not named .text */
     EXPECT_TRUE(has_hit(r, "text_high_entropy"));
 }
+
+/* ── Adversarial tests ──────────────────────────────────────────── */
+
+TEST(EntropyAnalyzer, Adversarial_JustBelowThreshold) {
+    /* Attacker crafts .text entropy ~6.9 to evade the >7.0 packed detection.
+       This verifies the boundary: 6.9 should NOT trigger. */
+    EntropyPeBuilder b;
+
+    /* Build a 4096-byte block with entropy ~6.9 by mixing 200 distinct
+       byte values uniformly — yields entropy = log2(200) ≈ 7.64, so we
+       instead use 120 values → log2(120) ≈ 6.91 */
+    std::vector<uint8_t> content(4096);
+    for (size_t i = 0; i < content.size(); i++)
+        content[i] = (uint8_t)(i % 120);
+    /* Shuffle to remove positional patterns */
+    uint32_t seed = 0x12345678;
+    for (size_t i = content.size() - 1; i > 0; i--) {
+        seed = seed * 1103515245 + 12345;
+        size_t j = (seed >> 16) % (i + 1);
+        std::swap(content[i], content[j]);
+    }
+
+    b.add_section_with_data(".text", 0x1000, content.data(), content.size(),
+                             0x60000020);
+
+    auto r = analyze_entropy(b.data(), b.size());
+    EXPECT_FALSE(has_hit(r, "text_high_entropy"))
+        << "Entropy just below 7.0 should evade packed detection";
+}
+
+TEST(EntropyAnalyzer, Adversarial_JustAboveThreshold) {
+    /* Entropy ~7.1 should trigger packed detection. Use 140 distinct
+       values → log2(140) ≈ 7.13 */
+    EntropyPeBuilder b;
+    std::vector<uint8_t> content(4096);
+    for (size_t i = 0; i < content.size(); i++)
+        content[i] = (uint8_t)(i % 140);
+    uint32_t seed = 0xDEADBEEF;
+    for (size_t i = content.size() - 1; i > 0; i--) {
+        seed = seed * 1103515245 + 12345;
+        size_t j = (seed >> 16) % (i + 1);
+        std::swap(content[i], content[j]);
+    }
+
+    b.add_section_with_data(".text", 0x1000, content.data(), content.size(),
+                             0x60000020);
+
+    auto r = analyze_entropy(b.data(), b.size());
+    EXPECT_TRUE(has_hit(r, "text_high_entropy"))
+        << "Entropy just above 7.0 should trigger packed detection";
+}
+
+TEST(EntropyAnalyzer, Adversarial_EntropyDilution) {
+    /* Attacker places small encrypted payload in .data and pads the rest
+       with zeros. Whole-file entropy stays below 7.5 even though the
+       payload itself is high-entropy. This is a known evasion. */
+    EntropyPeBuilder b;
+    b.add_text_normal(4096);
+
+    /* 512 bytes of random data + 7680 bytes of zeros = 8192 byte .data */
+    std::vector<uint8_t> data_sec(8192, 0);
+    uint32_t seed = 0xBADC0DE;
+    for (size_t i = 0; i < 512; i++) {
+        seed = seed * 1103515245 + 12345;
+        data_sec[i] = (uint8_t)(seed >> 16);
+    }
+    b.add_section_with_data(".data", 0x2000, data_sec.data(), data_sec.size(),
+                             0xC0000040); /* READ|WRITE|INITIALIZED */
+
+    auto r = analyze_entropy(b.data(), b.size());
+    /* Whole-file entropy should be diluted below 7.5 */
+    EXPECT_FALSE(has_hit(r, "overall_high_entropy"))
+        << "Entropy dilution via zero-padding should evade whole-file check";
+    /* .text is normal, so no per-section hit either */
+    EXPECT_FALSE(has_hit(r, "text_high_entropy"));
+}
+
+TEST(EntropyAnalyzer, Adversarial_HighEntropyResourceSection) {
+    /* Encrypted payload hidden in .rsrc section. Current analyzer only
+       checks code sections, so this should NOT be detected. Documents
+       a known blind spot. */
+    EntropyPeBuilder b;
+    b.add_text_normal(4096);
+
+    /* Random .rsrc data (high entropy) */
+    std::vector<uint8_t> rsrc(4096);
+    uint32_t seed = 0xFACEFEED;
+    for (size_t i = 0; i < rsrc.size(); i++) {
+        seed = seed * 1103515245 + 12345;
+        rsrc[i] = (uint8_t)(seed >> 16);
+    }
+    b.add_section_with_data(".rsrc", 0x2000, rsrc.data(), rsrc.size(),
+                             0x40000040); /* READ|INITIALIZED (no code flag) */
+
+    auto r = analyze_entropy(b.data(), b.size());
+    /* Not detected — .rsrc has no CODE flag */
+    EXPECT_FALSE(has_hit(r, "text_high_entropy"))
+        << "High-entropy .rsrc should not trigger code section check";
+}
+
+TEST(EntropyAnalyzer, Adversarial_TwoKeyXOR) {
+    /* Alternating two XOR keys (0xAA, 0x55) over zeros produces two
+       distinct byte values → entropy = log2(2) = 1.0.
+       This is AT the 1.0 threshold (check is < 1.0, not <=), so it
+       should evade XOR detection. */
+    EntropyPeBuilder b;
+    std::vector<uint8_t> content(4096);
+    for (size_t i = 0; i < content.size(); i++)
+        content[i] = (i % 2 == 0) ? 0xAA : 0x55;
+
+    b.add_section_with_data(".text", 0x1000, content.data(), content.size(),
+                             0x60000020);
+
+    auto r = analyze_entropy(b.data(), b.size());
+    EXPECT_FALSE(has_hit(r, "text_low_entropy"))
+        << "Two-key XOR (entropy=1.0) should evade <1.0 threshold";
+}
+
+TEST(EntropyAnalyzer, Adversarial_SingleKeyXOR) {
+    /* Single-byte XOR (0xAA) over zeros: all bytes identical → entropy = 0.
+       This SHOULD be caught by the <1.0 check. */
+    EntropyPeBuilder b;
+    std::vector<uint8_t> content(4096, 0xAA);
+
+    b.add_section_with_data(".text", 0x1000, content.data(), content.size(),
+                             0x60000020);
+
+    auto r = analyze_entropy(b.data(), b.size());
+    EXPECT_TRUE(has_hit(r, "text_low_entropy"))
+        << "Single-key XOR (entropy=0) should trigger XOR detection";
+}
+
+TEST(EntropyAnalyzer, Adversarial_HighEntropyNoCodeFlag) {
+    /* Packed code placed in a section without the CNT_CODE flag.
+       If the section isn't named .text and lacks CODE flag, the
+       analyzer won't check it. Documents this evasion. */
+    EntropyPeBuilder b;
+    b.add_text_normal(4096); /* legitimate .text first */
+
+    /* High entropy in .packed section without CODE flag */
+    std::vector<uint8_t> packed(4096);
+    uint32_t seed = 0xC0FFEE;
+    for (size_t i = 0; i < packed.size(); i++) {
+        seed = seed * 1103515245 + 12345;
+        packed[i] = (uint8_t)(seed >> 16);
+    }
+    b.add_section_with_data(".packed", 0x2000, packed.data(), packed.size(),
+                             0xC0000040); /* READ|WRITE|INITIALIZED, no CODE */
+
+    auto r = analyze_entropy(b.data(), b.size());
+    /* Analyzer only checks the first code section (.text here, which is normal) */
+    EXPECT_FALSE(has_hit(r, "text_high_entropy"))
+        << "High-entropy non-code section should not be checked";
+}
+
+TEST(EntropyAnalyzer, Adversarial_PaddedToReduceWholeFile) {
+    /* Attacker appends large zero-padding to reduce whole-file entropy
+       below 7.5, but .text is still packed. Per-section check should
+       still catch it. */
+    EntropyPeBuilder b;
+
+    /* High-entropy .text (random data → ~8.0) */
+    std::vector<uint8_t> text(4096);
+    uint32_t seed = 0xBEEFCAFE;
+    for (size_t i = 0; i < text.size(); i++) {
+        seed = seed * 1103515245 + 12345;
+        text[i] = (uint8_t)(seed >> 16);
+    }
+    b.add_section_with_data(".text", 0x1000, text.data(), text.size(),
+                             0x60000020);
+
+    /* Large zero .data section to dilute whole-file entropy */
+    std::vector<uint8_t> padding(32768, 0);
+    b.add_section_with_data(".data", 0x2000, padding.data(), padding.size(),
+                             0xC0000040);
+
+    auto r = analyze_entropy(b.data(), b.size());
+    /* .text should still be caught */
+    EXPECT_TRUE(has_hit(r, "text_high_entropy"))
+        << "Per-section check should catch packed .text despite padding";
+    /* But whole-file entropy is diluted */
+    EXPECT_FALSE(has_hit(r, "overall_high_entropy"))
+        << "Zero-padding should dilute whole-file entropy below 7.5";
+}
