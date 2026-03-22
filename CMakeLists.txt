@@ -85,6 +85,11 @@ add_executable(akavscan src/cli/akavscan.c)
 target_link_libraries(akavscan PRIVATE akesoav_core)
 target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
 
+# ── akesoav-service.exe (Windows service + named pipe) ──
+add_executable(akesoav-service src/service/akesoav_service.cpp)
+target_link_libraries(akesoav-service PRIVATE akesoav_core)
+target_compile_options(akesoav-service PRIVATE ${AKAV_WARNING_FLAGS})
+
 # ── Tests ──
 if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     enable_testing()
@@ -129,6 +134,20 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
 
     include(GoogleTest)
     gtest_discover_tests(akesoav_tests
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+
+    # ── Service integration tests (separate exe, spawns akesoav-service) ──
+    add_executable(akesoav_service_tests
+        tests/unit/test_service.cpp
+    )
+    target_link_libraries(akesoav_service_tests PRIVATE
+        GTest::gtest_main
+    )
+    target_compile_options(akesoav_service_tests PRIVATE ${AKAV_WARNING_FLAGS})
+    add_dependencies(akesoav_service_tests akesoav-service)
+
+    gtest_discover_tests(akesoav_service_tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
 endif()
