@@ -33,6 +33,22 @@ FetchContent_Declare(
 set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(zlib)
 
+# ── SQLite (for quarantine index) ──
+FetchContent_Declare(
+    sqlite3
+    URL https://www.sqlite.org/2024/sqlite-amalgamation-3460000.zip
+    DOWNLOAD_NO_EXTRACT FALSE
+)
+FetchContent_MakeAvailable(sqlite3)
+
+# Build sqlite3 as a static library from the amalgamation
+add_library(sqlite3_lib STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
+target_include_directories(sqlite3_lib PUBLIC ${sqlite3_SOURCE_DIR})
+# Suppress warnings from third-party code
+if(MSVC)
+    target_compile_options(sqlite3_lib PRIVATE /W0)
+endif()
+
 # ── Windows libraries ──
 set(AKAV_WIN_LIBS bcrypt.lib crypt32.lib wintrust.lib)
 
@@ -59,6 +75,7 @@ set(AKAV_ENGINE_SOURCES
     src/heuristics/strings.cpp
     src/scan_cache.cpp
     src/whitelist.cpp
+    src/quarantine/quarantine.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -68,7 +85,7 @@ target_include_directories(akesoav_core
 )
 target_compile_options(akesoav_core PRIVATE ${AKAV_WARNING_FLAGS})
 target_compile_definitions(akesoav_core PUBLIC AKAV_BUILD_DLL)
-target_link_libraries(akesoav_core PUBLIC ${AKAV_WIN_LIBS} zlibstatic)
+target_link_libraries(akesoav_core PUBLIC ${AKAV_WIN_LIBS} zlibstatic sqlite3_lib)
 target_include_directories(akesoav_core
     PUBLIC  $<BUILD_INTERFACE:${zlib_BINARY_DIR}>
     PUBLIC  $<BUILD_INTERFACE:${zlib_SOURCE_DIR}>
@@ -134,6 +151,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_heuristic_pipeline.cpp
         tests/unit/test_scan_cache.cpp
         tests/unit/test_whitelist.cpp
+        tests/unit/test_quarantine.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
