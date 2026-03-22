@@ -90,6 +90,16 @@ add_executable(akesoav-service src/service/akesoav_service.cpp)
 target_link_libraries(akesoav-service PRIVATE akesoav_core)
 target_compile_options(akesoav-service PRIVATE ${AKAV_WARNING_FLAGS})
 
+# ── EDR integration shim (static lib, runtime-loads akesoav.dll) ──
+add_library(akesoav_edr_shim STATIC
+    integration/edr_shim.cpp
+    integration/edr_shim.h
+)
+target_include_directories(akesoav_edr_shim
+    PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/integration>
+)
+target_compile_options(akesoav_edr_shim PRIVATE ${AKAV_WARNING_FLAGS})
+
 # ── Tests ──
 if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     enable_testing()
@@ -148,6 +158,22 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     add_dependencies(akesoav_service_tests akesoav-service)
 
     gtest_discover_tests(akesoav_service_tests
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+
+    # ── EDR shim integration tests ──
+    add_executable(akesoav_edr_shim_tests
+        tests/unit/test_edr_shim.cpp
+    )
+    target_link_libraries(akesoav_edr_shim_tests PRIVATE
+        akesoav_edr_shim
+        GTest::gtest_main
+    )
+    target_compile_options(akesoav_edr_shim_tests PRIVATE ${AKAV_WARNING_FLAGS})
+    # Depends on akesoav.dll being built (for DLL-present tests)
+    add_dependencies(akesoav_edr_shim_tests akesoav)
+
+    gtest_discover_tests(akesoav_edr_shim_tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
 endif()
