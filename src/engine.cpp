@@ -704,4 +704,19 @@ akav_error_t Engine::siem_stop_http_shipper()
     return AKAV_OK;
 }
 
+akav_error_t Engine::siem_start_jsonl(const char* path)
+{
+    if (!siem_)
+        return AKAV_ERROR_NOT_INIT;
+    return siem_->start_jsonl(path) ? AKAV_OK : AKAV_ERROR_IO;
+}
+
+akav_error_t Engine::siem_stop_jsonl()
+{
+    if (!siem_)
+        return AKAV_ERROR_NOT_INIT;
+    siem_->stop_jsonl();
+    return AKAV_OK;
+}
+
 } /* namespace akav */
