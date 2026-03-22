@@ -1,4 +1,6 @@
 #include "scanner.h"
+#include "parsers/pe.h"
+#include "file_type.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -317,4 +319,175 @@ void akav_scanner_scan_buffer(const akav_scanner_t* scanner,
     }
 
     /* No detection — result->found remains 0 */
+}
+
+/* ── Heuristic weights loading ──────────────────────────────────── */
+
+void akav_scanner_load_heuristic_weights(akav_scanner_t* scanner,
+                                          const char* config_dir)
+{
+    if (!scanner) return;
+
+    /* Always start with defaults */
+    akav_pe_header_weights_default(&scanner->pe_header_weights);
+    akav_entropy_weights_default(&scanner->entropy_weights);
+    akav_import_weights_default(&scanner->import_weights);
+    akav_string_weights_default(&scanner->string_weights);
+
+    /* Try loading from JSON if config_dir provided */
+    if (config_dir) {
+        char path[512];
+
+        snprintf(path, sizeof(path), "%s/pe_header_weights.json", config_dir);
+        akav_pe_header_weights_load_json(&scanner->pe_header_weights, path);
+
+        snprintf(path, sizeof(path), "%s/entropy_weights.json", config_dir);
+        akav_entropy_weights_load_json(&scanner->entropy_weights, path);
+
+        snprintf(path, sizeof(path), "%s/import_weights.json", config_dir);
+        akav_import_weights_load_json(&scanner->import_weights, path);
+
+        snprintf(path, sizeof(path), "%s/string_weights.json", config_dir);
+        akav_string_weights_load_json(&scanner->string_weights, path);
+    }
+
+    scanner->heuristic_weights_loaded = true;
+}
+
+/* ── Heuristic pipeline ─────────────────────────────────────────── */
+
+/* Map heuristic level to score threshold */
+static int heuristic_threshold(akav_heur_level_t level)
+{
+    switch (level) {
+        case AKAV_HEUR_HIGH:   return 50;
+        case AKAV_HEUR_MEDIUM: return 75;
+        case AKAV_HEUR_LOW:    return 100;
+        default:               return 0; /* OFF — unreachable if caller checks */
+    }
+}
+
+/* Find the highest-scoring check name across all results for the
+ * malware_name category (e.g., "Heuristic.Suspicious.Injection") */
+static const char* top_category(const akav_pe_header_result_t* pe_r,
+                                  const akav_entropy_result_t* ent_r,
+                                  const akav_import_result_t* imp_r,
+                                  const akav_string_result_t* str_r)
+{
+    const char* best_name = "Generic";
+    int best_weight = 0;
+
+    /* Check PE header hits */
+    for (int i = 0; i < pe_r->num_hits; i++) {
+        if (pe_r->hits[i].weight > best_weight) {
+            best_weight = pe_r->hits[i].weight;
+            best_name = pe_r->hits[i].check_name;
+        }
+    }
+    /* Check entropy hits */
+    for (int i = 0; i < ent_r->num_hits; i++) {
+        if (ent_r->hits[i].weight > best_weight) {
+            best_weight = ent_r->hits[i].weight;
+            best_name = ent_r->hits[i].check_name;
+        }
+    }
+    /* Check import hits */
+    for (int i = 0; i < imp_r->num_hits; i++) {
+        if (imp_r->hits[i].weight > best_weight) {
+            best_weight = imp_r->hits[i].weight;
+            best_name = imp_r->hits[i].check_name;
+        }
+    }
+    /* Check string hits */
+    for (int i = 0; i < str_r->num_hits; i++) {
+        if (str_r->hits[i].weight > best_weight) {
+            best_weight = str_r->hits[i].weight;
+            best_name = str_r->hits[i].check_name;
+        }
+    }
+
+    return best_name;
+}
+
+int akav_scanner_run_heuristics(const akav_scanner_t* scanner,
+                                 const uint8_t* data, size_t data_len,
+                                 akav_heur_level_t level,
+                                 akav_scan_result_t* result)
+{
+    if (!scanner || !data || data_len == 0 || !result)
+        return 0;
+
+    /* Only run on PE files */
+    akav_file_type_t ftype = akav_detect_file_type(data, data_len);
+    if (ftype != AKAV_FILETYPE_PE)
+        return 0;
+
+    /* Parse PE */
+    akav_pe_t pe;
+    memset(&pe, 0, sizeof(pe));
+    if (!akav_pe_parse(&pe, data, data_len)) {
+        add_warning(result, "Heuristic: PE parse failed");
+        return 0;
+    }
+
+    /* Parse imports (needed for import analyzer + PE header import count) */
+    akav_pe_parse_imports(&pe, data, data_len);
+
+    /* Compute per-section entropy (needed for entropy analyzer) */
+    akav_pe_compute_entropy(&pe, data, data_len);
+
+    /* Analyze metadata (overlay, rich header, authenticode) */
+    akav_pe_analyze_metadata(&pe, data, data_len);
+
+    /* Use loaded weights or defaults */
+    const akav_pe_header_weights_t* pe_w = scanner->heuristic_weights_loaded
+        ? &scanner->pe_header_weights : NULL;
+    const akav_entropy_weights_t* ent_w = scanner->heuristic_weights_loaded
+        ? &scanner->entropy_weights : NULL;
+    const akav_import_weights_t* imp_w = scanner->heuristic_weights_loaded
+        ? &scanner->import_weights : NULL;
+    const akav_string_weights_t* str_w = scanner->heuristic_weights_loaded
+        ? &scanner->string_weights : NULL;
+
+    /* ── Run all 4 analyzers ────────────────────────────────────── */
+
+    akav_pe_header_result_t pe_result;
+    akav_pe_header_analyze(&pe, data, data_len, pe_w, &pe_result);
+
+    akav_entropy_result_t entropy_result;
+    akav_entropy_analyze(&pe, data, data_len, ent_w, &entropy_result);
+
+    akav_import_result_t import_result;
+    akav_import_analyze(&pe, imp_w, &import_result);
+
+    akav_string_result_t string_result;
+    akav_string_analyze(data, data_len, str_w, &string_result);
+
+    /* ── Sum scores ─────────────────────────────────────────────── */
+
+    int total_score = pe_result.total_score
+                    + entropy_result.total_score
+                    + import_result.total_score
+                    + string_result.total_score;
+
+    result->heuristic_score = (double)total_score;
+
+    /* ── Apply threshold ────────────────────────────────────────── */
+
+    int threshold = heuristic_threshold(level);
+    if (threshold > 0 && total_score > threshold) {
+        const char* category = top_category(&pe_result, &entropy_result,
+                                              &import_result, &string_result);
+
+        result->found = 1;
+        snprintf(result->malware_name, sizeof(result->malware_name),
+                 "Heuristic.Suspicious.%s", category);
+        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                  "heuristic", _TRUNCATE);
+        snprintf(result->signature_id, sizeof(result->signature_id),
+                 "heur-%d", total_score);
+    }
+
+    akav_pe_free(&pe);
+    return total_score;
 }
