@@ -26,6 +26,7 @@ Engine::Engine()
     , siem_(std::make_unique<SiemShipper>())
 {
     akav_scanner_init(&scanner_);
+    akav_plugin_manager_init(&plugin_mgr_);
 
     /* Default trusted signers per section 5.4 */
     whitelist_->add_signer("Microsoft Corporation");
@@ -34,7 +35,20 @@ Engine::Engine()
 
 Engine::~Engine()
 {
+    akav_plugin_manager_destroy(&plugin_mgr_);
     akav_scanner_destroy(&scanner_);
+}
+
+akav_error_t Engine::load_plugins(const char* plugin_dir)
+{
+    if (!plugin_dir)
+        return AKAV_ERROR_INVALID;
+
+    int loaded = akav_plugin_manager_load_dir(&plugin_mgr_, plugin_dir);
+    plugins_loaded_ = (plugin_mgr_.count > 0);
+
+    fprintf(stderr, "[engine] Loaded %d plugin(s) from '%s'\n", loaded, plugin_dir);
+    return AKAV_OK;
 }
 
 akav_error_t Engine::init(const char* config_path)
@@ -108,10 +122,15 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
     const char* ftype_str = akav_file_type_name(ftype);
     strncpy_s(result->file_type, sizeof(result->file_type), ftype_str, _TRUNCATE);
 
-    /* Run signature scan pipeline (Bloom → MD5 → SHA256 → CRC32 → Aho-Corasick) */
+    /* Run signature scan pipeline (Bloom → MD5 → SHA256 → CRC32 → Fuzzy → Aho-Corasick) */
     if (scanner_loaded_)
     {
         akav_scanner_scan_buffer(&scanner_, buf, len, result);
+    }
+
+    /* Run plugin scanners (after built-in pipeline, before unpacker/heuristics) */
+    if (!result->found && plugins_loaded_) {
+        akav_plugin_manager_scan(&plugin_mgr_, buf, len, opts, result);
     }
 
     /* If not yet detected and packing analysis enabled, try UPX unpack on PE files */

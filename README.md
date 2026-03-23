@@ -19,6 +19,7 @@ AkesoAV implements a multi-layered scan pipeline:
 - **Heuristic Engine** — Static PE analysis (headers, entropy, imports, suspicious strings)
 - **Archive Handling** — ZIP/GZIP/TAR with decompression bomb protection
 - **Unpacker Engine** — UPX static unpacker (NRV2B/NRV2D/NRV2E + x86 CT filter reversal)
+- **Plugin System** — Dynamic DLL plugin loading with versioned API (LoadLibrary/GetProcAddress)
 - **Quarantine** — AES-256-GCM encrypted vault with SQLite index
 - **SIEM Integration** — JSONL event serialization with HTTP shipping
 - **Service Mode** — Windows service with named-pipe IPC and cron-based scheduling
@@ -32,6 +33,7 @@ File In
   -> MD5 / SHA-256 / CRC32 hash matching
   -> Fuzzy Hash (TLSH-style similarity)
   -> Aho-Corasick byte-stream patterns
+  -> Plugin Scanners (dynamic DLL extensions)
   -> UPX Unpack (if packed PE detected)
      -> Recursive scan of unpacked content
   -> Heuristic Analysis
@@ -80,8 +82,8 @@ ctest -C Release --output-on-failure
 | P3 | ZIP / GZIP / TAR archive handling | Done |
 | P4 | Heuristic engine (entropy, imports, strings, static analyzer) | Done |
 | P5 | Scan cache, whitelist, quarantine, SIEM, service mode | Done |
-| P6 | Fuzzy hashing, UPX static unpacker | Done |
-| P7 | Graph-based signatures, YARA rules | Planned |
+| P6 | Fuzzy hashing, UPX static unpacker, dynamic plugins | Done |
+| P7 | Extended file format parsers (ELF, PDF, OLE2) | Planned |
 | P8 | x86 emulator + generic unpacking | Planned |
 | P9 | ML classifier (random forest) | Planned |
 | P10 | Update system + delta patches | Planned |

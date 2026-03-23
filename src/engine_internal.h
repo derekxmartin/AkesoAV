@@ -6,6 +6,7 @@
 #include "scan_cache.h"
 #include "whitelist.h"
 #include "siem/siem_shipper.h"
+#include "plugin/plugin_loader.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -54,6 +55,9 @@ public:
     /* Access the SIEM shipper for JSONL init and direct event submission */
     SiemShipper* siem_shipper() { return siem_.get(); }
 
+    /* Plugin loading */
+    akav_error_t load_plugins(const char* plugin_dir);
+
     bool is_initialized() const { return initialized_.load(std::memory_order_acquire); }
 
     /* Archive scanning (recursive) */
@@ -76,6 +80,8 @@ private:
     std::unique_ptr<ScanCache> cache_;
     std::unique_ptr<Whitelist> whitelist_;
     std::unique_ptr<SiemShipper> siem_;
+    akav_plugin_manager_t plugin_mgr_{};
+    bool plugins_loaded_{false};
 };
 
 } /* namespace akav */

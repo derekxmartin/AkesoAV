@@ -116,6 +116,11 @@ akav_error_t akav_shim_siem_stop_jsonl(akav_engine_t* engine)
     return engine->impl.siem_stop_jsonl();
 }
 
+akav_error_t akav_shim_load_plugins(akav_engine_t* engine, const char* plugin_dir)
+{
+    return engine->impl.load_plugins(plugin_dir);
+}
+
 akav_error_t akav_shim_update_signatures(akav_engine_t* engine, const char* update_url)
 {
     (void)engine;

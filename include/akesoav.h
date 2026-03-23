@@ -92,6 +92,7 @@ typedef struct {
 AKAV_API akav_error_t akav_engine_create(_Out_ akav_engine_t** engine);
 AKAV_API akav_error_t akav_engine_init(_In_ akav_engine_t* engine, _In_opt_z_ const char* config_path);
 AKAV_API akav_error_t akav_engine_load_signatures(_In_ akav_engine_t* engine, _In_z_ const char* db_path);
+AKAV_API akav_error_t akav_engine_load_plugins(_In_ akav_engine_t* engine, _In_z_ const char* plugin_dir);
 AKAV_API akav_error_t akav_engine_destroy(_In_ akav_engine_t* engine);
 
 /* -- Scanning (thread-safe after init) -- */
