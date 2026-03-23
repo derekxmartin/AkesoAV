@@ -84,6 +84,7 @@ set(AKAV_ENGINE_SOURCES
     src/unpacker/generic.cpp
     src/plugin/plugin_loader.cpp
     src/signatures/yara_scanner.cpp
+    src/signatures/graph_sig.cpp
     src/emulator/x86_decode.cpp
     src/emulator/x86_emu.cpp
     src/emulator/winapi_stubs.cpp
@@ -209,6 +210,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_pe_loader.cpp
         tests/unit/test_generic_unpacker.cpp
         tests/unit/test_yara_scanner.cpp
+        tests/unit/test_graph_sig.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
