@@ -99,6 +99,7 @@ set(AKAV_ENGINE_SOURCES
     src/siem/siem_shipper.cpp
     src/service/cron_parser.cpp
     src/service/scheduler.cpp
+    src/update/update_client.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -215,6 +216,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_graph_sig.cpp
         tests/unit/test_ml_classifier.cpp
         tests/unit/test_dynamic_scorer.cpp
+        tests/unit/test_update_client.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
