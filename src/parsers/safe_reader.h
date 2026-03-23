@@ -48,6 +48,15 @@ size_t akav_reader_remaining(const akav_safe_reader_t* r);
 /* Returns current position. */
 size_t akav_reader_position(const akav_safe_reader_t* r);
 
+/* Read a 16-bit big-endian value. Returns false on OOB. */
+bool akav_reader_read_u16_be(akav_safe_reader_t* r, uint16_t* out);
+
+/* Read a 32-bit big-endian value. Returns false on OOB. */
+bool akav_reader_read_u32_be(akav_safe_reader_t* r, uint32_t* out);
+
+/* Read a 64-bit big-endian value. Returns false on OOB. */
+bool akav_reader_read_u64_be(akav_safe_reader_t* r, uint64_t* out);
+
 #ifdef __cplusplus
 }
 #endif
