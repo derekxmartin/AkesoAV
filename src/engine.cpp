@@ -180,12 +180,6 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
                 }
                 if (dict_s == 0) continue;
 
-                /* Find endobj */
-                size_t obj_end = len;
-                for (size_t e = stream_kw; e + 6 <= len; e++) {
-                    if (memcmp(buf + e, "endobj", 6) == 0) { obj_end = e; break; }
-                }
-
                 /* Parse filters and stream location */
                 size_t stream_start, stream_length;
                 akav_pdf_filter_t filters[AKAV_PDF_MAX_FILTERS];
