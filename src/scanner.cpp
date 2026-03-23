@@ -14,6 +14,7 @@ void akav_scanner_init(akav_scanner_t* scanner)
     akav_hash_matcher_init(&scanner->hash_matcher);
     akav_crc_matcher_init(&scanner->crc_matcher);
     akav_fuzzy_matcher_init(&scanner->fuzzy_matcher);
+    akav_yara_scanner_init(&scanner->yara);
 }
 
 void akav_scanner_destroy(akav_scanner_t* scanner)
@@ -24,6 +25,9 @@ void akav_scanner_destroy(akav_scanner_t* scanner)
         akav_ac_destroy(scanner->ac);
         scanner->ac = NULL;
     }
+
+    akav_yara_scanner_destroy(&scanner->yara);
+    scanner->yara_loaded = false;
 
     akav_fuzzy_matcher_destroy(&scanner->fuzzy_matcher);
     akav_crc_matcher_destroy(&scanner->crc_matcher);
@@ -174,6 +178,17 @@ static akav_error_t load_sections(akav_scanner_t* scanner)
         if (data) {
             scanner->ac = akav_ac_deserialize(data, ac_sec->size);
             scanner->ac_loaded = (scanner->ac != NULL);
+        }
+    }
+
+    /* YARA rules (source text compiled at load time) */
+    const akav_db_section_entry_t* yara_sec =
+        akav_sigdb_find_section(db, AKAV_SECTION_YARA);
+    if (yara_sec && yara_sec->size > 0) {
+        const uint8_t* data = akav_sigdb_section_data(db, yara_sec);
+        if (data) {
+            scanner->yara_loaded =
+                akav_yara_load_section(&scanner->yara, data, yara_sec->size);
         }
     }
 
@@ -367,6 +382,24 @@ void akav_scanner_scan_buffer(const akav_scanner_t* scanner,
         akav_ac_search(scanner->ac, data, data_len, ac_match_callback, &ctx);
         if (ctx.found) {
             return; /* short-circuit (result already populated) */
+        }
+    }
+
+    /* ── Stage 7: YARA rules ─────────────────────────────────────── */
+    if (scanner->yara_loaded && data && data_len > 0) {
+        akav_yara_match_t ym;
+        if (akav_yara_scan_buffer(&scanner->yara, data, data_len, &ym)) {
+            result->found = 1;
+            strncpy_s(result->malware_name, sizeof(result->malware_name),
+                      ym.rule_name, _TRUNCATE);
+
+            char sig_id[AKAV_MAX_SIG_ID];
+            snprintf(sig_id, sizeof(sig_id), "yara-%s", ym.rule_name);
+            strncpy_s(result->signature_id, sizeof(result->signature_id),
+                      sig_id, _TRUNCATE);
+            strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                      "yara", _TRUNCATE);
+            return; /* short-circuit */
         }
     }
 

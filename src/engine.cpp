@@ -9,6 +9,7 @@
 #include "unpacker/generic.h"
 #include "parsers/pdf.h"
 #include "parsers/ole2.h"
+#include "signatures/yara_scanner.h"
 #include "siem/event_serialize.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -26,6 +27,7 @@ Engine::Engine()
     , whitelist_(std::make_unique<Whitelist>())
     , siem_(std::make_unique<SiemShipper>())
 {
+    akav_yara_global_init();
     akav_scanner_init(&scanner_);
     akav_plugin_manager_init(&plugin_mgr_);
 
@@ -38,6 +40,7 @@ Engine::~Engine()
 {
     akav_plugin_manager_destroy(&plugin_mgr_);
     akav_scanner_destroy(&scanner_);
+    akav_yara_global_cleanup();
 }
 
 akav_error_t Engine::load_plugins(const char* plugin_dir)

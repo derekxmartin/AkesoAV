@@ -8,6 +8,7 @@
 #include "signatures/crc_matcher.h"
 #include "signatures/aho_corasick.h"
 #include "signatures/fuzzy_hash.h"
+#include "signatures/yara_scanner.h"
 #include "heuristics/static_analyzer.h"
 #include "heuristics/entropy.h"
 #include "heuristics/imports.h"
@@ -29,7 +30,8 @@ typedef enum {
     AKAV_STAGE_CRC32        = 3,
     AKAV_STAGE_FUZZY_HASH   = 4,
     AKAV_STAGE_AHO_CORASICK = 5,
-    AKAV_STAGE_COUNT        = 6
+    AKAV_STAGE_YARA         = 6,
+    AKAV_STAGE_COUNT        = 7
 } akav_scan_stage_t;
 
 /* ── Scan pipeline ───────────────────────────────────────────────── */
@@ -55,6 +57,9 @@ typedef struct {
 
     akav_ac_t*           ac;
     bool                 ac_loaded;
+
+    akav_yara_scanner_t  yara;
+    bool                 yara_loaded;
 
     /* String table pointer (from sigdb, not owned) */
     const char*          string_table;

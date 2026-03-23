@@ -49,6 +49,9 @@ if(MSVC)
     target_compile_options(sqlite3_lib PRIVATE /W0)
 endif()
 
+# ── YARA (for rule matching) ──
+include(${CMAKE_SOURCE_DIR}/cmake/BuildYara.cmake)
+
 # ── Windows libraries ──
 set(AKAV_WIN_LIBS bcrypt.lib crypt32.lib wintrust.lib winhttp.lib)
 
@@ -80,6 +83,7 @@ set(AKAV_ENGINE_SOURCES
     src/unpacker/upx.cpp
     src/unpacker/generic.cpp
     src/plugin/plugin_loader.cpp
+    src/signatures/yara_scanner.cpp
     src/emulator/x86_decode.cpp
     src/emulator/x86_emu.cpp
     src/emulator/winapi_stubs.cpp
@@ -101,7 +105,7 @@ target_include_directories(akesoav_core
 )
 target_compile_options(akesoav_core PRIVATE ${AKAV_WARNING_FLAGS})
 target_compile_definitions(akesoav_core PUBLIC AKAV_BUILD_DLL)
-target_link_libraries(akesoav_core PUBLIC ${AKAV_WIN_LIBS} zlibstatic sqlite3_lib)
+target_link_libraries(akesoav_core PUBLIC ${AKAV_WIN_LIBS} zlibstatic sqlite3_lib yara_lib)
 target_include_directories(akesoav_core
     PUBLIC  $<BUILD_INTERFACE:${zlib_BINARY_DIR}>
     PUBLIC  $<BUILD_INTERFACE:${zlib_SOURCE_DIR}>
@@ -204,6 +208,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_x86_emu.cpp
         tests/unit/test_pe_loader.cpp
         tests/unit/test_generic_unpacker.cpp
+        tests/unit/test_yara_scanner.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

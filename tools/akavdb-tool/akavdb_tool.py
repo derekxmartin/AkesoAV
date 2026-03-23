@@ -278,6 +278,34 @@ def build_aho_corasick_section(sigs: list, strtab: StringTable) -> tuple:
     return bytes(data), len(sigs)
 
 
+def build_yara_section(yara_defs: list) -> tuple:
+    """Build YARA section from a list of rule definitions.
+
+    Each entry is either:
+      - {"file": "path/to/rules.yar"} — include file contents
+      - {"source": "rule foo { ... }"} — inline source
+
+    The section data is all rule source concatenated as a single UTF-8 blob.
+    entry_count = number of individual rules (approximate, based on 'rule' keyword count).
+    """
+    combined_source = []
+    for entry in yara_defs:
+        if "file" in entry:
+            with open(entry["file"], "r", encoding="utf-8") as f:
+                combined_source.append(f.read())
+        elif "source" in entry:
+            combined_source.append(entry["source"])
+        else:
+            raise ValueError(f"YARA entry must have 'file' or 'source' key: {entry}")
+
+    full_source = "\n".join(combined_source)
+    data = full_source.encode("utf-8")
+
+    # Approximate rule count
+    rule_count = full_source.count("\nrule ") + (1 if full_source.startswith("rule ") else 0)
+    return data, max(rule_count, len(yara_defs))
+
+
 # ── Database Compiler ─────────────────────────────────────────────────
 
 def compile_db(sig_defs: dict, private_key_path: str = None) -> bytes:
@@ -305,6 +333,11 @@ def compile_db(sig_defs: dict, private_key_path: str = None) -> bytes:
     if "bytestream" in sig_defs and sig_defs["bytestream"]:
         data, count = build_aho_corasick_section(sig_defs["bytestream"], strtab)
         sections.append((SECTION_AHO_CORASICK, data, count))
+        total_sigs += count
+
+    if "yara" in sig_defs and sig_defs["yara"]:
+        data, count = build_yara_section(sig_defs["yara"])
+        sections.append((SECTION_YARA, data, count))
         total_sigs += count
 
     # Add string table as last section
@@ -687,6 +720,49 @@ def cmd_test(args):
         sys.exit(2)
 
 
+def cmd_import(args):
+    """Import signatures from external formats into .akavdb."""
+    if args.format == "yara":
+        # Collect all .yar/.yara files from the input paths
+        yara_files = []
+        for path in args.input:
+            if os.path.isdir(path):
+                for root, dirs, files in os.walk(path):
+                    for f in sorted(files):
+                        if f.endswith((".yar", ".yara")):
+                            yara_files.append(os.path.join(root, f))
+            elif os.path.isfile(path):
+                yara_files.append(path)
+            else:
+                print(f"WARNING: skipping {path} (not found)", file=sys.stderr)
+
+        if not yara_files:
+            print("ERROR: no YARA files found", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"Importing {len(yara_files)} YARA file(s)...")
+
+        # Build sig_defs with yara entries
+        sig_defs = {
+            "yara": [{"file": f} for f in yara_files]
+        }
+
+        # If appending to an existing db, load it first
+        # (For v1, we just create a new db with only YARA rules)
+
+        db_bytes = compile_db(sig_defs, args.key)
+
+        with open(args.output, "wb") as f:
+            f.write(db_bytes)
+
+        print(f"Wrote {args.output}: {len(db_bytes)} bytes")
+        for yf in yara_files:
+            print(f"  + {yf}")
+    else:
+        print(f"ERROR: unsupported format '{args.format}'", file=sys.stderr)
+        sys.exit(1)
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 
 def main():
@@ -716,6 +792,14 @@ def main():
     p_test.add_argument("--eicar", action="store_true", help="Test EICAR detection")
     p_test.add_argument("--file", help="File to scan")
 
+    # import
+    p_import = subparsers.add_parser("import", help="Import signatures from external formats")
+    p_import.add_argument("input", nargs="+", help="Input files or directories")
+    p_import.add_argument("-o", "--output", required=True, help="Output .akavdb path")
+    p_import.add_argument("--format", required=True, choices=["yara"],
+                          help="Import format (yara)")
+    p_import.add_argument("--key", help="RSA private key PEM file for signing")
+
     args = parser.parse_args()
 
     if args.command == "compile":
@@ -726,6 +810,8 @@ def main():
         cmd_stats(args)
     elif args.command == "test":
         cmd_test(args)
+    elif args.command == "import":
+        cmd_import(args)
 
 
 if __name__ == "__main__":
