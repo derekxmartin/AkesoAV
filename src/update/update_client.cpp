@@ -301,13 +301,36 @@ bool akav_update_parse_manifest(const char* json, size_t json_len,
     }
 
     /* Store raw body for signature verification.
-     * The "raw body" is everything except the manifest_signature field.
-     * For simplicity we store the full JSON and verify over it —
-     * the signer must sign over the same full JSON with manifest_signature
-     * set to empty string. */
+     * The signer signs the JSON with manifest_signature set to "".
+     * We must reconstruct that same JSON by replacing the real
+     * signature value with an empty string. */
     if (json_len < sizeof(manifest->raw_body)) {
         memcpy(manifest->raw_body, json, json_len);
         manifest->raw_body_len = json_len;
+
+        /* Find "manifest_signature": "..." and replace the value with "" */
+        const char* key = "\"manifest_signature\"";
+        char* pos = strstr(manifest->raw_body, key);
+        if (pos) {
+            /* Skip key and colon+whitespace to find the opening quote */
+            char* p = pos + strlen(key);
+            while (*p == ' ' || *p == ':') p++;
+            if (*p == '"') {
+                char* val_start = p;  /* Points to opening quote */
+                p++;  /* Skip opening quote */
+                /* Find closing quote (handle escaped quotes) */
+                while (*p && !(*p == '"' && *(p - 1) != '\\')) p++;
+                if (*p == '"') {
+                    char* val_end = p + 1;  /* Points past closing quote */
+                    /* Replace "base64sig..." with "" */
+                    size_t tail_len = (manifest->raw_body + manifest->raw_body_len) - val_end;
+                    memmove(val_start + 2, val_end, tail_len + 1); /* +1 for null */
+                    val_start[0] = '"';
+                    val_start[1] = '"';
+                    manifest->raw_body_len -= (size_t)(val_end - (val_start + 2));
+                }
+            }
+        }
     }
 
     return manifest->version > 0;
