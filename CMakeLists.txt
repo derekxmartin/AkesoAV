@@ -86,6 +86,7 @@ set(AKAV_ENGINE_SOURCES
     src/unpacker/generic.cpp
     src/plugin/plugin_loader.cpp
     src/protection/self_protect.cpp
+    src/protection/watchdog.cpp
     src/signatures/yara_scanner.cpp
     src/signatures/graph_sig.cpp
     src/emulator/x86_decode.cpp
@@ -139,6 +140,11 @@ target_link_libraries(update_test PRIVATE akesoav_core)
 add_executable(akesoav-service src/service/akesoav_service.cpp)
 target_link_libraries(akesoav-service PRIVATE akesoav_core)
 target_compile_options(akesoav-service PRIVATE ${AKAV_WARNING_FLAGS})
+
+# ── akesoav-watchdog.exe (service health monitor) ──
+add_executable(akesoav-watchdog src/protection/watchdog_main.cpp)
+target_link_libraries(akesoav-watchdog PRIVATE akesoav_core)
+target_compile_options(akesoav-watchdog PRIVATE ${AKAV_WARNING_FLAGS})
 
 # ── EDR integration shim (static lib, runtime-loads akesoav.dll) ──
 add_library(akesoav_edr_shim STATIC
@@ -223,6 +229,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_dynamic_scorer.cpp
         tests/unit/test_self_protect.cpp
         tests/unit/test_update_client.cpp
+        tests/unit/test_watchdog.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
