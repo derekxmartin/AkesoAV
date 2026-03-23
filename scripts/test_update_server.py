@@ -217,10 +217,11 @@ def main():
     UpdateHandler.manifest_json = manifest.encode()
     UpdateHandler.akavdb_data = akavdb
 
-    # Write cert + key to temp files
-    tmpdir = tempfile.mkdtemp(prefix="akav_update_test_")
-    cert_path = os.path.join(tmpdir, "server.crt")
-    key_path = os.path.join(tmpdir, "server.key")
+    # Write cert, key, and pubkey to current working directory
+    # (avoids temp directory permission issues on some Windows setups)
+    cert_path = os.path.join(os.getcwd(), "test_server.crt")
+    key_path = os.path.join(os.getcwd(), "test_server.key")
+    pubkey_path = os.path.join(os.getcwd(), "test_pubkey.bin")
 
     with open(cert_path, "wb") as f:
         f.write(tls_cert.public_bytes(serialization.Encoding.PEM))
@@ -229,6 +230,8 @@ def main():
             serialization.Encoding.PEM,
             serialization.PrivateFormat.TraditionalOpenSSL,
             serialization.NoEncryption()))
+    with open(pubkey_path, "wb") as f:
+        f.write(pub_blob)
 
     # Start HTTPS server
     server = http.server.HTTPServer(("localhost", args.port), UpdateHandler)
@@ -240,16 +243,11 @@ def main():
     print(f"Manifest URL: https://localhost:{args.port}/manifest.json")
     print(f"DB URL:       https://localhost:{args.port}/signatures.akavdb")
     print()
-    # Save public key blob for test consumption
-    pubkey_path = os.path.join(tmpdir, "pubkey.bin")
-    with open(pubkey_path, "wb") as f:
-        f.write(pub_blob)
-
     print(f"To test with update_test.exe, run in another terminal:")
     print()
     print(f"  .\\build\\Release\\update_test.exe ^")
     print(f"    --url https://localhost:{args.port}/manifest.json ^")
-    print(f"    --pubkey \"{pubkey_path}\" ^")
+    print(f"    --pubkey test_pubkey.bin ^")
     print(f"    --cert-fp {cert_fp.hex()}")
     print()
     print(f"  (If cert pinning fails with self-signed cert, use --no-verify")
@@ -262,11 +260,12 @@ def main():
         print("\nShutting down.")
     finally:
         server.server_close()
-        # Clean up temp files
-        os.unlink(cert_path)
-        os.unlink(key_path)
-        os.unlink(os.path.join(tmpdir, "pubkey.bin"))
-        os.rmdir(tmpdir)
+        # Clean up generated files
+        for p in (cert_path, key_path, pubkey_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
