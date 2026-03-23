@@ -18,6 +18,10 @@
 
 #include "update/update_client.h"
 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <bcrypt.h>
+
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -209,10 +213,43 @@ int main(int argc, char* argv[])
             printf("[DEBUG] pubkey size: %zu bytes\n", pubkey.size());
         }
 
-        bool sig_ok = akav_update_rsa_verify(
-            (const uint8_t*)manifest.raw_body, manifest.raw_body_len,
-            manifest.manifest_signature, AKAV_UPDATE_RSA_SIG_LEN,
-            pubkey.data(), pubkey.size());
+        /* Debug: manual verification with NTSTATUS output */
+        bool sig_ok = false;
+        {
+            /* Hash the raw_body */
+            uint8_t hash[32];
+            akav_update_sha256_buffer((const uint8_t*)manifest.raw_body,
+                                      manifest.raw_body_len, hash);
+            printf("[DEBUG] raw_body SHA-256: ");
+            for (int i = 0; i < 32; i++) printf("%02x", hash[i]);
+            printf("\n");
+
+            BCRYPT_ALG_HANDLE alg = NULL;
+            BCRYPT_KEY_HANDLE key = NULL;
+            NTSTATUS st;
+
+            st = BCryptOpenAlgorithmProvider(&alg, BCRYPT_RSA_ALGORITHM, NULL, 0);
+            printf("[DEBUG] BCryptOpenAlgorithmProvider: 0x%08lx\n", st);
+
+            st = BCryptImportKeyPair(alg, NULL, BCRYPT_RSAPUBLIC_BLOB,
+                                      &key, (PUCHAR)pubkey.data(),
+                                      (ULONG)pubkey.size(), 0);
+            printf("[DEBUG] BCryptImportKeyPair: 0x%08lx\n", st);
+
+            BCRYPT_PKCS1_PADDING_INFO padding;
+            padding.pszAlgId = BCRYPT_SHA256_ALGORITHM;
+
+            st = BCryptVerifySignature(key, &padding,
+                                        hash, sizeof(hash),
+                                        (PUCHAR)manifest.manifest_signature,
+                                        AKAV_UPDATE_RSA_SIG_LEN,
+                                        BCRYPT_PAD_PKCS1);
+            printf("[DEBUG] BCryptVerifySignature: 0x%08lx\n", st);
+            sig_ok = (st == 0);
+
+            if (key) BCryptDestroyKey(key);
+            if (alg) BCryptCloseAlgorithmProvider(alg, 0);
+        }
 
         if (sig_ok) {
             printf("[OK] Manifest RSA signature VALID\n");
