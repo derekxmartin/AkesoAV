@@ -14,6 +14,7 @@
 #include "heuristics/imports.h"
 #include "heuristics/strings.h"
 #include "heuristics/ml_classifier.h"
+#include "heuristics/dynamic_scorer.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -75,6 +76,10 @@ typedef struct {
 
     /* ML classifier model */
     akav_ml_model_t          ml_model;
+
+    /* Dynamic scorer weights */
+    akav_dynamic_weights_t   dynamic_weights;
+    bool                     dynamic_weights_loaded;
 
     /* Stats */
     uint32_t total_signatures;
