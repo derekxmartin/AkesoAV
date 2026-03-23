@@ -60,6 +60,9 @@ set(AKAV_ENGINE_SOURCES
     src/file_type.cpp
     src/parsers/safe_reader.cpp
     src/parsers/pe.cpp
+    src/parsers/elf.cpp
+    src/parsers/pdf.cpp
+    src/parsers/ole2.cpp
     src/signatures/bloom.cpp
     src/signatures/hash_matcher.cpp
     src/signatures/crc_matcher.cpp
@@ -189,6 +192,9 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_fuzzy_hash.cpp
         tests/unit/test_upx.cpp
         tests/unit/test_plugin_loader.cpp
+        tests/unit/test_elf.cpp
+        tests/unit/test_pdf.cpp
+        tests/unit/test_ole2.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
@@ -313,4 +319,7 @@ if(AKAV_BUILD_FUZZ)
     akav_add_fuzz_target(fuzz_pe          tests/fuzz/fuzz_pe.cpp)
     akav_add_fuzz_target(fuzz_zip         tests/fuzz/fuzz_zip.cpp)
     akav_add_fuzz_target(fuzz_gzip        tests/fuzz/fuzz_gzip.cpp)
+    akav_add_fuzz_target(fuzz_elf         tests/fuzz/fuzz_elf.cpp)
+    akav_add_fuzz_target(fuzz_pdf         tests/fuzz/fuzz_pdf.cpp)
+    akav_add_fuzz_target(fuzz_ole2        tests/fuzz/fuzz_ole2.cpp)
 endif()

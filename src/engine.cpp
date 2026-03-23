@@ -6,6 +6,8 @@
 #include "parsers/tar.h"
 #include "signatures/hash_matcher.h"
 #include "unpacker/upx.h"
+#include "parsers/pdf.h"
+#include "parsers/ole2.h"
 #include "siem/event_serialize.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -160,6 +162,212 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
                 free(unpacked);
             }
         }
+    }
+
+    /* If not yet detected and file is PDF, extract and scan streams/JS/embedded */
+    if (!result->found && ftype == AKAV_FILETYPE_PDF)
+    {
+        akav_pdf_t pdf;
+        if (akav_pdf_parse(&pdf, buf, len))
+        {
+            akav_pdf_analyze(&pdf, buf, len);
+
+            /* Scan decompressed streams for signatures */
+            for (uint32_t i = 0; i < pdf.num_objects && !result->found; i++)
+            {
+                if (!pdf.objects[i].in_use || pdf.objects[i].compressed)
+                    continue;
+
+                size_t obj_off = (size_t)pdf.objects[i].offset;
+                if (obj_off >= len) continue;
+
+                /* Find stream within this object */
+                size_t stream_kw = 0;
+                for (size_t s = obj_off; s + 6 < len; s++) {
+                    if (memcmp(buf + s, "stream", 6) == 0) {
+                        stream_kw = s;
+                        break;
+                    }
+                    if (memcmp(buf + s, "endobj", 6) == 0) break;
+                }
+                if (stream_kw == 0) continue;
+
+                /* Find the dictionary start for this object */
+                size_t dict_s = 0;
+                for (size_t d = obj_off; d + 1 < stream_kw; d++) {
+                    if (buf[d] == '<' && buf[d+1] == '<') { dict_s = d; break; }
+                }
+                if (dict_s == 0) continue;
+
+                /* Parse filters and stream location */
+                size_t stream_start, stream_length;
+                akav_pdf_filter_t filters[AKAV_PDF_MAX_FILTERS];
+                uint32_t num_filters;
+
+                /* Minimal inline get_object_stream logic using public API */
+                /* Find /Length */
+                int64_t slen = -1;
+                for (size_t p = dict_s; p + 7 < stream_kw; p++) {
+                    if (memcmp(buf + p, "/Length", 7) == 0) {
+                        size_t np = p + 7;
+                        while (np < stream_kw && (buf[np] == ' ' || buf[np] == '\t' ||
+                               buf[np] == '\r' || buf[np] == '\n')) np++;
+                        slen = 0;
+                        while (np < stream_kw && buf[np] >= '0' && buf[np] <= '9') {
+                            slen = slen * 10 + (buf[np] - '0');
+                            np++;
+                        }
+                        break;
+                    }
+                }
+                if (slen <= 0) continue;
+
+                /* Locate stream body */
+                stream_start = stream_kw + 6;
+                if (stream_start < len && buf[stream_start] == '\r') stream_start++;
+                if (stream_start < len && buf[stream_start] == '\n') stream_start++;
+                stream_length = (size_t)slen;
+                if (stream_start + stream_length > len) continue;
+
+                /* Detect /Filter */
+                num_filters = 0;
+                for (size_t p = dict_s; p + 7 < stream_kw; p++) {
+                    if (memcmp(buf + p, "/Filter", 7) == 0) {
+                        size_t fp = p + 7;
+                        while (fp < stream_kw && buf[fp] == ' ') fp++;
+                        if (fp < stream_kw && buf[fp] == '/') {
+                            fp++;
+                            if (fp + 11 <= stream_kw && memcmp(buf + fp, "FlateDecode", 11) == 0)
+                                filters[num_filters++] = AKAV_PDF_FILTER_FLATE;
+                            else if (fp + 13 <= stream_kw && memcmp(buf + fp, "ASCII85Decode", 13) == 0)
+                                filters[num_filters++] = AKAV_PDF_FILTER_ASCII85;
+                            else if (fp + 14 <= stream_kw && memcmp(buf + fp, "ASCIIHexDecode", 14) == 0)
+                                filters[num_filters++] = AKAV_PDF_FILTER_ASCIIHEX;
+                            else if (fp + 9 <= stream_kw && memcmp(buf + fp, "LZWDecode", 9) == 0)
+                                filters[num_filters++] = AKAV_PDF_FILTER_LZW;
+                        }
+                        break;
+                    }
+                }
+
+                uint8_t* decoded = nullptr;
+                size_t decoded_len = 0;
+                if (akav_pdf_decompress_stream(buf + stream_start, stream_length,
+                                                filters, num_filters,
+                                                &decoded, &decoded_len))
+                {
+                    akav_scan_options_t inner_opts = *opts;
+                    inner_opts.scan_archives = 0;
+                    akav_scan_result_t inner_result;
+                    memset(&inner_result, 0, sizeof(inner_result));
+                    scan_buffer(decoded, decoded_len, name, &inner_opts, &inner_result);
+                    if (inner_result.found) {
+                        *result = inner_result;
+                        char note[64];
+                        snprintf(note, sizeof(note), "pdf:%s", inner_result.scanner_id);
+                        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                                  note, _TRUNCATE);
+                    }
+                    free(decoded);
+                }
+            }
+
+            /* Scan extracted JavaScript */
+            for (uint32_t i = 0; i < pdf.num_js && !result->found; i++)
+            {
+                akav_scan_options_t inner_opts = *opts;
+                inner_opts.scan_archives = 0;
+                akav_scan_result_t inner_result;
+                memset(&inner_result, 0, sizeof(inner_result));
+                scan_buffer(pdf.js_entries[i].data, pdf.js_entries[i].data_len,
+                            name, &inner_opts, &inner_result);
+                if (inner_result.found) {
+                    *result = inner_result;
+                    char note[64];
+                    snprintf(note, sizeof(note), "pdf-js:%s", inner_result.scanner_id);
+                    strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                              note, _TRUNCATE);
+                }
+            }
+
+            /* Scan extracted embedded files */
+            for (uint32_t i = 0; i < pdf.num_embedded && !result->found; i++)
+            {
+                akav_scan_options_t inner_opts = *opts;
+                inner_opts.scan_archives = 0;
+                akav_scan_result_t inner_result;
+                memset(&inner_result, 0, sizeof(inner_result));
+                scan_buffer(pdf.embedded_files[i].data, pdf.embedded_files[i].data_len,
+                            name, &inner_opts, &inner_result);
+                if (inner_result.found) {
+                    *result = inner_result;
+                    char note[64];
+                    snprintf(note, sizeof(note), "pdf-embed:%s", inner_result.scanner_id);
+                    strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                              note, _TRUNCATE);
+                }
+            }
+
+            akav_pdf_free(&pdf);
+        }
+    }
+
+    /* If not yet detected and file is OLE2, extract and scan streams + VBA */
+    if (!result->found && ftype == AKAV_FILETYPE_OLE2)
+    {
+        akav_ole2_t ole2;
+        memset(&ole2, 0, sizeof(ole2));
+        akav_ole2_analyze(&ole2, buf, len);
+
+        if (ole2.valid)
+        {
+            /* Scan extracted streams */
+            for (uint32_t i = 0; i < ole2.num_streams && !result->found; i++)
+            {
+                if (ole2.streams[i].data && ole2.streams[i].data_len > 0)
+                {
+                    akav_scan_options_t inner_opts = *opts;
+                    inner_opts.scan_archives = 0;
+                    akav_scan_result_t inner_result;
+                    memset(&inner_result, 0, sizeof(inner_result));
+                    scan_buffer(ole2.streams[i].data, ole2.streams[i].data_len,
+                                name, &inner_opts, &inner_result);
+                    if (inner_result.found) {
+                        *result = inner_result;
+                        char note[64];
+                        snprintf(note, sizeof(note), "ole2:%s",
+                                 inner_result.scanner_id);
+                        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                                  note, _TRUNCATE);
+                    }
+                }
+            }
+
+            /* Scan extracted VBA module source code */
+            for (uint32_t i = 0; i < ole2.num_vba_modules && !result->found; i++)
+            {
+                if (ole2.vba_modules[i].source && ole2.vba_modules[i].source_len > 0)
+                {
+                    akav_scan_options_t inner_opts = *opts;
+                    inner_opts.scan_archives = 0;
+                    akav_scan_result_t inner_result;
+                    memset(&inner_result, 0, sizeof(inner_result));
+                    scan_buffer(ole2.vba_modules[i].source,
+                                ole2.vba_modules[i].source_len,
+                                name, &inner_opts, &inner_result);
+                    if (inner_result.found) {
+                        *result = inner_result;
+                        char note[64];
+                        snprintf(note, sizeof(note), "ole2-vba:%s",
+                                 inner_result.scanner_id);
+                        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                                  note, _TRUNCATE);
+                    }
+                }
+            }
+        }
+
+        akav_ole2_free(&ole2);
     }
 
     /* If not yet detected and heuristics enabled, run heuristic pipeline on PE files */
