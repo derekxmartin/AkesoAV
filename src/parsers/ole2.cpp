@@ -95,6 +95,13 @@ static uint8_t* follow_fat_chain(const akav_ole2_t* ole2,
             return NULL;
         }
 
+        /* Bounds-check sector BEFORE using it for data read or FAT lookup */
+        if (sector >= ole2->num_fat_entries) {
+            free(buf);
+            *out_len = 0;
+            return NULL;
+        }
+
         size_t off = sector_offset(sector, sec_size);
         if (!akav_reader_seek_to(&r, off)) {
             free(buf);
@@ -113,11 +120,6 @@ static uint8_t* follow_fat_chain(const akav_ole2_t* ole2,
         }
         copied += to_copy;
 
-        if (sector >= ole2->num_fat_entries) {
-            free(buf);
-            *out_len = 0;
-            return NULL;
-        }
         sector = ole2->fat[sector];
     }
 
@@ -161,6 +163,13 @@ static uint8_t* follow_minifat_chain(const akav_ole2_t* ole2,
             return NULL;
         }
 
+        /* Bounds-check sector BEFORE using it for data or miniFAT lookup */
+        if (sector >= ole2->num_minifat_entries) {
+            free(buf);
+            *out_len = 0;
+            return NULL;
+        }
+
         size_t off = (size_t)sector * mini_sec_size;
         if (off >= mini_stream_len) {
             free(buf);
@@ -177,11 +186,6 @@ static uint8_t* follow_minifat_chain(const akav_ole2_t* ole2,
         memcpy(buf + copied, mini_stream_data + off, to_copy);
         copied += to_copy;
 
-        if (sector >= ole2->num_minifat_entries) {
-            free(buf);
-            *out_len = 0;
-            return NULL;
-        }
         sector = ole2->minifat[sector];
     }
 
