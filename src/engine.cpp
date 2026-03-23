@@ -5,6 +5,7 @@
 #include "parsers/gzip.h"
 #include "parsers/tar.h"
 #include "signatures/hash_matcher.h"
+#include "unpacker/upx.h"
 #include "siem/event_serialize.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -109,6 +110,37 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
     if (scanner_loaded_)
     {
         akav_scanner_scan_buffer(&scanner_, buf, len, result);
+    }
+
+    /* If not yet detected and packing analysis enabled, try UPX unpack on PE files */
+    if (!result->found && opts->scan_packed && ftype == AKAV_FILETYPE_PE)
+    {
+        akav_upx_info_t upx_info;
+        if (akav_upx_detect(buf, len, &upx_info))
+        {
+            uint8_t* unpacked = nullptr;
+            size_t unpacked_len = 0;
+            if (akav_upx_unpack(buf, len, &unpacked, &unpacked_len, &upx_info))
+            {
+                /* Scan unpacked buffer through full pipeline (with scan_packed=0
+                 * to prevent infinite recursion) */
+                akav_scan_options_t inner_opts = *opts;
+                inner_opts.scan_packed = 0;
+                akav_scan_result_t inner_result;
+                scan_buffer(unpacked, unpacked_len, name, &inner_opts, &inner_result);
+
+                if (inner_result.found) {
+                    *result = inner_result;
+                    /* Annotate that detection came from unpacked content */
+                    char packed_note[64];
+                    snprintf(packed_note, sizeof(packed_note), "upx:%s",
+                             inner_result.scanner_id);
+                    strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                              packed_note, _TRUNCATE);
+                }
+                free(unpacked);
+            }
+        }
     }
 
     /* If not yet detected and heuristics enabled, run heuristic pipeline on PE files */

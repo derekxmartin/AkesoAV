@@ -1,17 +1,45 @@
-# AkesoAV
+<p align="center">
+  <img src="akeso-av-logo.jpg" alt="AkesoAV Logo" width="300">
+</p>
 
-A proof-of-concept antivirus scan engine for Windows x64, built in C/C++. AkesoAV provides the static and signature-based detection layer that complements [AkesoEDR](https://github.com/derekxmartin/AkesoEDR)'s behavioral detection capabilities.
+<h1 align="center">AkesoAV</h1>
+
+<p align="center">
+  A proof-of-concept antivirus scan engine for Windows x64, built in C/C++.<br>
+  AkesoAV provides the static and signature-based detection layer that complements
+  <a href="https://github.com/derekxmartin/AkesoEDR">AkesoEDR</a>'s behavioral detection capabilities.
+</p>
 
 ## Architecture
 
 AkesoAV implements a multi-layered scan pipeline:
 
 - **File Type Detection** — Magic byte identification (PE, ELF, ZIP, GZIP, PDF, OLE2)
-- **Signature Engine** — Bloom filter, crypto hash (MD5/SHA-256), CRC32, Aho-Corasick byte-stream, fuzzy hash, graph-based, YARA
-- **Heuristic Engine** — Static PE analysis (headers, entropy, imports, strings, ML classifier) + dynamic scoring from x86 emulator API call logs
+- **Signature Engine** — Bloom filter, crypto hash (MD5/SHA-256), CRC32, Aho-Corasick byte-stream, fuzzy hash (TLSH-style)
+- **Heuristic Engine** — Static PE analysis (headers, entropy, imports, suspicious strings)
 - **Archive Handling** — ZIP/GZIP/TAR with decompression bomb protection
-- **Unpacker Engine** — UPX static unpacker + x86 emulator-assisted generic unpacking
+- **Unpacker Engine** — UPX static unpacker (NRV2B/NRV2D/NRV2E + x86 CT filter reversal)
 - **Quarantine** — AES-256-GCM encrypted vault with SQLite index
+- **SIEM Integration** — JSONL event serialization with HTTP shipping
+- **Service Mode** — Windows service with named-pipe IPC and cron-based scheduling
+
+## Scan Pipeline
+
+```
+File In
+  -> File Type Detection (magic bytes)
+  -> Bloom Filter (quick reject)
+  -> MD5 / SHA-256 / CRC32 hash matching
+  -> Fuzzy Hash (TLSH-style similarity)
+  -> Aho-Corasick byte-stream patterns
+  -> UPX Unpack (if packed PE detected)
+     -> Recursive scan of unpacked content
+  -> Heuristic Analysis
+     -> Header anomalies, entropy, imports, strings
+  -> Archive Extraction (ZIP/GZIP/TAR)
+     -> Recursive scan of archive members
+  -> Verdict (clean / threat name)
+```
 
 ## Building
 
@@ -32,9 +60,33 @@ ctest -C Release --output-on-failure
 ### Quick Test
 
 ```powershell
-.\build\Release\akavscan.exe --eicar-test
-.\build\Release\akavscan.exe testdata\eicar.com.txt
+# Generate test signature database
+.\build\Release\create_test_db.exe testdata\test.akavdb
+
+# EICAR self-test
+.\build\Release\akavscan.exe --eicar-test --db testdata\test.akavdb
+
+# Scan a file
+.\build\Release\akavscan.exe --db testdata\test.akavdb testdata\eicar.com.txt
 ```
+
+## Progress
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| P0 | Project scaffolding, EICAR detection, CLI scanner | Done |
+| P1 | Signature engine (Bloom, MD5, SHA-256, CRC32, Aho-Corasick) | Done |
+| P2 | PE parser, scan pipeline integration | Done |
+| P3 | ZIP / GZIP / TAR archive handling | Done |
+| P4 | Heuristic engine (entropy, imports, strings, static analyzer) | Done |
+| P5 | Scan cache, whitelist, quarantine, SIEM, service mode | Done |
+| P6 | Fuzzy hashing, UPX static unpacker | Done |
+| P7 | Graph-based signatures, YARA rules | Planned |
+| P8 | x86 emulator + generic unpacking | Planned |
+| P9 | ML classifier (random forest) | Planned |
+| P10 | Update system + delta patches | Planned |
+| P11 | Performance tuning + thread pool | Planned |
+| P12 | Installer, documentation, final hardening | Planned |
 
 ## Integration with AkesoEDR
 

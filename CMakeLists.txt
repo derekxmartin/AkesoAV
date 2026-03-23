@@ -74,6 +74,7 @@ set(AKAV_ENGINE_SOURCES
     src/heuristics/entropy.cpp
     src/heuristics/imports.cpp
     src/heuristics/strings.cpp
+    src/unpacker/upx.cpp
     src/scan_cache.cpp
     src/whitelist.cpp
     src/quarantine/quarantine.cpp
@@ -185,6 +186,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_siem.cpp
         tests/unit/test_scheduler.cpp
         tests/unit/test_fuzzy_hash.cpp
+        tests/unit/test_upx.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
