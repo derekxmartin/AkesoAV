@@ -79,6 +79,7 @@ set(AKAV_ENGINE_SOURCES
     src/heuristics/strings.cpp
     src/unpacker/upx.cpp
     src/plugin/plugin_loader.cpp
+    src/emulator/x86_decode.cpp
     src/scan_cache.cpp
     src/whitelist.cpp
     src/quarantine/quarantine.cpp
@@ -195,6 +196,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_elf.cpp
         tests/unit/test_pdf.cpp
         tests/unit/test_ole2.cpp
+        tests/unit/test_x86_decode.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
