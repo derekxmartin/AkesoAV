@@ -13,10 +13,10 @@ akav_file_type_t akav_detect_file_type(const uint8_t* buf, size_t len)
     if (len < 2)
         return AKAV_FILETYPE_UNKNOWN;
 
-    /* OLE2: D0 CF 11 E0 A1 B4 1A E1 (8 bytes) */
+    /* OLE2: D0 CF 11 E0 A1 B1 1A E1 (8 bytes) — MS-CFB spec */
     if (len >= 8)
     {
-        static const uint8_t ole2_magic[] = {0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB4, 0x1A, 0xE1};
+        static const uint8_t ole2_magic[] = {0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1};
         bool match = true;
         for (int i = 0; i < 8; i++)
         {
