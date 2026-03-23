@@ -7,6 +7,7 @@
 #include "signatures/hash_matcher.h"
 #include "unpacker/upx.h"
 #include "parsers/pdf.h"
+#include "parsers/ole2.h"
 #include "siem/event_serialize.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -296,6 +297,64 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
 
             akav_pdf_free(&pdf);
         }
+    }
+
+    /* If not yet detected and file is OLE2, extract and scan streams + VBA */
+    if (!result->found && ftype == AKAV_FILETYPE_OLE2)
+    {
+        akav_ole2_t ole2;
+        memset(&ole2, 0, sizeof(ole2));
+        akav_ole2_analyze(&ole2, buf, len);
+
+        if (ole2.valid)
+        {
+            /* Scan extracted streams */
+            for (uint32_t i = 0; i < ole2.num_streams && !result->found; i++)
+            {
+                if (ole2.streams[i].data && ole2.streams[i].data_len > 0)
+                {
+                    akav_scan_options_t inner_opts = *opts;
+                    inner_opts.scan_archives = 0;
+                    akav_scan_result_t inner_result;
+                    memset(&inner_result, 0, sizeof(inner_result));
+                    scan_buffer(ole2.streams[i].data, ole2.streams[i].data_len,
+                                name, &inner_opts, &inner_result);
+                    if (inner_result.found) {
+                        *result = inner_result;
+                        char note[64];
+                        snprintf(note, sizeof(note), "ole2:%s",
+                                 inner_result.scanner_id);
+                        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                                  note, _TRUNCATE);
+                    }
+                }
+            }
+
+            /* Scan extracted VBA module source code */
+            for (uint32_t i = 0; i < ole2.num_vba_modules && !result->found; i++)
+            {
+                if (ole2.vba_modules[i].source && ole2.vba_modules[i].source_len > 0)
+                {
+                    akav_scan_options_t inner_opts = *opts;
+                    inner_opts.scan_archives = 0;
+                    akav_scan_result_t inner_result;
+                    memset(&inner_result, 0, sizeof(inner_result));
+                    scan_buffer(ole2.vba_modules[i].source,
+                                ole2.vba_modules[i].source_len,
+                                name, &inner_opts, &inner_result);
+                    if (inner_result.found) {
+                        *result = inner_result;
+                        char note[64];
+                        snprintf(note, sizeof(note), "ole2-vba:%s",
+                                 inner_result.scanner_id);
+                        strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                                  note, _TRUNCATE);
+                    }
+                }
+            }
+        }
+
+        akav_ole2_free(&ole2);
     }
 
     /* If not yet detected and heuristics enabled, run heuristic pipeline on PE files */
