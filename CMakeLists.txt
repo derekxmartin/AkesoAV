@@ -75,6 +75,7 @@ set(AKAV_ENGINE_SOURCES
     src/heuristics/imports.cpp
     src/heuristics/strings.cpp
     src/unpacker/upx.cpp
+    src/plugin/plugin_loader.cpp
     src/scan_cache.cpp
     src/whitelist.cpp
     src/quarantine/quarantine.cpp
@@ -187,6 +188,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_scheduler.cpp
         tests/unit/test_fuzzy_hash.cpp
         tests/unit/test_upx.cpp
+        tests/unit/test_plugin_loader.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
@@ -199,6 +201,24 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
     gtest_discover_tests(akesoav_tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
+
+    # ── Test plugin DLLs (for plugin loader tests) ──
+    add_library(test_plugin_scanner SHARED tests/plugins/test_plugin_scanner.cpp)
+    target_include_directories(test_plugin_scanner PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src
+    )
+    target_compile_options(test_plugin_scanner PRIVATE ${AKAV_WARNING_FLAGS})
+
+    add_library(test_plugin_bad_version SHARED tests/plugins/test_plugin_bad_version.cpp)
+    target_include_directories(test_plugin_bad_version PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src
+    )
+    target_compile_options(test_plugin_bad_version PRIVATE ${AKAV_WARNING_FLAGS})
+
+    # Ensure test plugin DLLs are built before running tests
+    add_dependencies(akesoav_tests test_plugin_scanner test_plugin_bad_version)
 
     # ── Service integration tests (separate exe, spawns akesoav-service) ──
     add_executable(akesoav_service_tests
