@@ -13,6 +13,7 @@
 #include "heuristics/entropy.h"
 #include "heuristics/imports.h"
 #include "heuristics/strings.h"
+#include "heuristics/ml_classifier.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -71,6 +72,9 @@ typedef struct {
     akav_import_weights_t    import_weights;
     akav_string_weights_t    string_weights;
     bool                     heuristic_weights_loaded;
+
+    /* ML classifier model */
+    akav_ml_model_t          ml_model;
 
     /* Stats */
     uint32_t total_signatures;
