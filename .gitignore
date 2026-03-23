@@ -1,7 +1,10 @@
 # Build directories
 build/
+build-*/
 out/
 cmake-build-*/
+cmake_test_discovery*.json
+timeout-*
 
 # Visual Studio
 .vs/
@@ -72,6 +75,7 @@ dist/
 testdata/*.exe
 testdata/*.dll
 testdata/pe_corpus/
+tests/fuzz/corpus_*/
 
 # Signature databases (generated)
 *.akavdb
