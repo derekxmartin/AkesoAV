@@ -100,6 +100,7 @@ set(AKAV_ENGINE_SOURCES
     src/siem/siem_shipper.cpp
     src/service/cron_parser.cpp
     src/service/scheduler.cpp
+    src/update/update_client.cpp
 )
 
 add_library(akesoav_core OBJECT ${AKAV_ENGINE_SOURCES})
@@ -129,6 +130,10 @@ target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
 # ── create_test_db.exe (test .akavdb generator utility) ──
 add_executable(create_test_db scripts/create_test_db.cpp)
 target_link_libraries(create_test_db PRIVATE akesoav_core)
+
+# ── update_test.exe (update client integration test tool) ──
+add_executable(update_test tools/update_test.cpp)
+target_link_libraries(update_test PRIVATE akesoav_core)
 
 # ── akesoav-service.exe (Windows service + named pipe) ──
 add_executable(akesoav-service src/service/akesoav_service.cpp)
@@ -217,6 +222,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_ml_classifier.cpp
         tests/unit/test_dynamic_scorer.cpp
         tests/unit/test_self_protect.cpp
+        tests/unit/test_update_client.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
