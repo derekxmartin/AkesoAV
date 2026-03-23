@@ -17,10 +17,14 @@ AkesoAV scans files through a six-stage signature pipeline, multiple unpacking e
 **Highlights:**
 
 - **Six-stage signature pipeline** with Bloom filter pre-screening, MD5/SHA-256/CRC32 hash matching, TLSH-style fuzzy hashing, and Aho-Corasick byte-stream patterns
+- **YARA rule integration** compiling and matching custom `.yar` rules alongside the built-in signature pipeline
+- **Graph-based signatures** building control-flow graphs from PE `.text` sections, hashing basic-block opcode sequences (FNV-1a), and comparing via Jaccard similarity for compiler/packer-variant detection
 - **File type detection** via magic bytes for PE, ELF, ZIP, GZIP, TAR, PDF, and OLE2 formats
 - **PE parser** with full import/export tables, section entropy, Rich header, Authenticode, overlay detection, and resource enumeration
 - **Extended format parsers** for ELF (program/section headers, symbol tables), PDF (stream decompression, JavaScript extraction), and OLE2 (VBA macro detection)
 - **Heuristic engine** analyzing PE header anomalies, section entropy, suspicious imports, and string patterns with weighted scoring
+- **ML classifier** using a Random Forest model (trained via scikit-learn, exported to JSON) with 14-feature PE vectors for machine-learning-based malware probability scoring
+- **Dynamic heuristic scorer** evaluating emulator API call logs for suspicious patterns — individual calls (VirtualAlloc RWX, LoadLibrary on suspicious DLLs, GetProcAddress loops) and multi-call chains (injection, classic shellcode, write-then-execute)
 - **UPX static unpacker** supporting NRV2B/NRV2D/NRV2E decompression with x86 CALL/JMP filter reversal and PE reconstruction
 - **x86 emulator** with 70+ instruction handlers, EFLAGS, prefix support, and 2M instruction limit for behavioral unpacking
 - **Generic emulation-based unpacker** detecting write-then-jump patterns (>4KB write + EIP transfer to written region) with PE payload recovery
@@ -43,6 +47,7 @@ File In
   -> MD5 / SHA-256 / CRC32 hash matching
   -> Fuzzy Hash (TLSH-style similarity)
   -> Aho-Corasick byte-stream patterns
+  -> YARA Rule Matching (.yar files)
   -> Plugin Scanners (dynamic DLL extensions)
   -> UPX Static Unpack (if packed PE detected)
      -> Recursive scan of unpacked content
@@ -51,6 +56,8 @@ File In
      -> Recursive scan of recovered payload
   -> Heuristic Analysis
      -> Header anomalies, entropy, imports, strings
+     -> ML classifier (Random Forest, 14-feature PE vectors)
+     -> Dynamic scorer (emulator API call log analysis)
   -> Archive Extraction (ZIP / GZIP / TAR)
      -> Recursive scan of archive members
   -> PDF / OLE2 Stream Extraction
@@ -144,12 +151,46 @@ Nine fuzz targets cover the scan buffer, PE parser, x86 decoder, x86 emulator, Z
 | P6 | Fuzzy hashing, UPX static unpacker, dynamic plugins | Done |
 | P7 | Extended file format parsers (ELF, PDF, OLE2) | Done |
 | P8 | x86 emulator + generic unpacking | Done |
-| P9 | ML classifier (random forest) | Planned |
-| P10 | Update system + delta patches | Planned |
-| P11 | Performance tuning + thread pool | Planned |
-| P12 | Installer, documentation, final hardening | Planned |
+| P9 | YARA integration, graph-based signatures, ML classifier, dynamic heuristic scorer | Done |
+| P10 | Update system, self-protection, watchdog, OOXML parser, install scripts | Planned |
+| P11 | Hardening and evasion resistance | Planned |
+| P12 | Integration testing, benchmarks, documentation | Planned |
 
 See `REQUIREMENTS.md` for the full implementation roadmap (75 tasks, 13 phases).
+
+---
+
+## Installation
+
+After building, install AkesoAV as a Windows service using the provided PowerShell script:
+
+```powershell
+# Run as Administrator
+.\scripts\install.ps1
+```
+
+The installer performs the following:
+
+1. **Service registration** — registers `akesoav-service.exe` via `sc create` as a Windows service (automatic start)
+2. **Signature deployment** — copies the `.akavdb` signature database to `%ProgramData%\Akeso\`
+3. **Configuration** — creates registry keys under `HKLM\SOFTWARE\Akeso` with restricted ACLs for engine settings (heuristic level, scan paths, exclusions)
+4. **Watchdog setup** — installs the watchdog process for automatic service recovery
+5. **Default schedules** — configures Quick Scan daily at 12:00 and Full Scan weekly Sunday at 02:00
+
+To verify the installation:
+
+```powershell
+akavscan --eicar-test --db "%ProgramData%\Akeso\signatures.akavdb"
+```
+
+To uninstall:
+
+```powershell
+# Run as Administrator
+.\scripts\uninstall.ps1
+```
+
+> **Note:** The install/uninstall scripts are part of Phase 10 (P10-T5) and are not yet implemented. For now, run the engine directly from the build output directory as shown in the [Building](#building) section.
 
 ---
 
