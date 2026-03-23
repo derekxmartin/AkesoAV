@@ -113,9 +113,9 @@ private:
     JsonlWriter          jsonl_;
     bool                 jsonl_running_;
 
-    /* Stats */
-    volatile size_t      events_shipped_;
-    volatile size_t      events_dropped_;
+    /* Stats (protected by ring_mutex_) */
+    size_t               events_shipped_;
+    size_t               events_dropped_;
 };
 
 } /* namespace akav */
