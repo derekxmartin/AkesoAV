@@ -39,8 +39,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     akav_elf_analyze(&elf, data, size);
 
     /* Exercise utility functions that read parsed state */
-    akav_elf_machine_name(elf.machine);
-    akav_elf_type_name(elf.type);
+    akav_elf_machine_name(elf.e_machine);
+    akav_elf_type_name(elf.e_type);
 
     if (elf.num_sections > 0) {
         akav_elf_find_section(&elf, ".text");
