@@ -15,6 +15,7 @@ void akav_scanner_init(akav_scanner_t* scanner)
     akav_crc_matcher_init(&scanner->crc_matcher);
     akav_fuzzy_matcher_init(&scanner->fuzzy_matcher);
     akav_yara_scanner_init(&scanner->yara);
+    akav_ml_model_init(&scanner->ml_model);
 }
 
 void akav_scanner_destroy(akav_scanner_t* scanner)
@@ -28,6 +29,8 @@ void akav_scanner_destroy(akav_scanner_t* scanner)
 
     akav_yara_scanner_destroy(&scanner->yara);
     scanner->yara_loaded = false;
+
+    akav_ml_model_free(&scanner->ml_model);
 
     akav_fuzzy_matcher_destroy(&scanner->fuzzy_matcher);
     akav_crc_matcher_destroy(&scanner->crc_matcher);
@@ -434,6 +437,10 @@ void akav_scanner_load_heuristic_weights(akav_scanner_t* scanner,
 
         snprintf(path, sizeof(path), "%s/string_weights.json", config_dir);
         akav_string_weights_load_json(&scanner->string_weights, path);
+
+        /* Load ML classifier model if available */
+        snprintf(path, sizeof(path), "%s/ml_model.json", config_dir);
+        akav_ml_model_load(&scanner->ml_model, path);
     }
 
     scanner->heuristic_weights_loaded = true;
@@ -548,12 +555,26 @@ int akav_scanner_run_heuristics(const akav_scanner_t* scanner,
     akav_string_result_t string_result;
     akav_string_analyze(data, data_len, str_w, &string_result);
 
+    /* ── ML classifier ──────────────────────────────────────────── */
+
+    int ml_score = 0;
+    if (scanner->ml_model.loaded) {
+        akav_ml_features_t ml_features;
+        akav_ml_extract_features(&pe, data_len, &ml_features);
+
+        akav_ml_result_t ml_result;
+        if (akav_ml_classify(&scanner->ml_model, &ml_features, &ml_result)) {
+            ml_score = ml_result.score;  /* probability * 50 */
+        }
+    }
+
     /* ── Sum scores ─────────────────────────────────────────────── */
 
     int total_score = pe_result.total_score
                     + entropy_result.total_score
                     + import_result.total_score
-                    + string_result.total_score;
+                    + string_result.total_score
+                    + ml_score;
 
     result->heuristic_score = (double)total_score;
 

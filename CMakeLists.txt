@@ -80,6 +80,7 @@ set(AKAV_ENGINE_SOURCES
     src/heuristics/entropy.cpp
     src/heuristics/imports.cpp
     src/heuristics/strings.cpp
+    src/heuristics/ml_classifier.cpp
     src/unpacker/upx.cpp
     src/unpacker/generic.cpp
     src/plugin/plugin_loader.cpp
@@ -211,6 +212,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_generic_unpacker.cpp
         tests/unit/test_yara_scanner.cpp
         tests/unit/test_graph_sig.cpp
+        tests/unit/test_ml_classifier.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
