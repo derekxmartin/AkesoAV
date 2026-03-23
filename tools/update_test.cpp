@@ -191,6 +191,24 @@ int main(int argc, char* argv[])
             }
         }
 
+        /* Debug: check if signature bytes look reasonable */
+        {
+            printf("[DEBUG] Signature first 8 bytes: ");
+            for (int i = 0; i < 8; i++)
+                printf("%02x", manifest.manifest_signature[i]);
+            printf("\n");
+            printf("[DEBUG] Signature last 8 bytes: ");
+            for (int i = 248; i < 256; i++)
+                printf("%02x", manifest.manifest_signature[i]);
+            printf("\n");
+            /* Check if signature is all zeros (decode failed) */
+            int nonzero = 0;
+            for (int i = 0; i < 256; i++)
+                if (manifest.manifest_signature[i]) nonzero++;
+            printf("[DEBUG] Non-zero signature bytes: %d / 256\n", nonzero);
+            printf("[DEBUG] pubkey size: %zu bytes\n", pubkey.size());
+        }
+
         bool sig_ok = akav_update_rsa_verify(
             (const uint8_t*)manifest.raw_body, manifest.raw_body_len,
             manifest.manifest_signature, AKAV_UPDATE_RSA_SIG_LEN,
