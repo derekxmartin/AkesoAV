@@ -137,6 +137,7 @@ int main(int argc, char* argv[])
 
     if (!akav_update_https_fetch(url,
                                   have_cert_fp ? cert_fp : nullptr,
+                                  no_verify,
                                   &manifest_data, &manifest_len,
                                   fetch_error, sizeof(fetch_error))) {
         printf("[FAIL] Fetch failed: %s\n", fetch_error);
@@ -205,6 +206,7 @@ int main(int argc, char* argv[])
 
         if (!akav_update_https_fetch(file->url,
                                       have_cert_fp ? cert_fp : nullptr,
+                                      no_verify,
                                       &file_data, &file_len,
                                       dl_error, sizeof(dl_error))) {
             printf("[FAIL] Download failed: %s\n", dl_error);

@@ -100,10 +100,13 @@ bool akav_update_parse_manifest(const char* json, size_t json_len,
 /**
  * Fetch data from a URL via WinHTTP HTTPS.
  * If pinned_cert_sha256 is non-NULL, certificate pinning is enforced.
+ * If skip_tls_verify is true, TLS certificate errors are ignored
+ * (for testing with self-signed certs only — never in production).
  * Caller must free *out_data with free().
  */
 bool akav_update_https_fetch(const char* url,
                              const uint8_t* pinned_cert_sha256,
+                             bool skip_tls_verify,
                              uint8_t** out_data, size_t* out_len,
                              char* error, size_t error_len);
 

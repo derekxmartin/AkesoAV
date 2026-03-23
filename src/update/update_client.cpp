@@ -496,6 +496,7 @@ static void CALLBACK winhttp_status_callback(
 
 bool akav_update_https_fetch(const char* url,
                              const uint8_t* pinned_cert_sha256,
+                             bool skip_tls_verify,
                              uint8_t** out_data, size_t* out_len,
                              char* error, size_t error_len)
 {
@@ -571,6 +572,16 @@ bool akav_update_https_fetch(const char* url,
         WinHttpCloseHandle(conn);
         WinHttpCloseHandle(session);
         return false;
+    }
+
+    /* Skip TLS certificate validation if requested (test-only) */
+    if (skip_tls_verify && is_https) {
+        DWORD sec_flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                          SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                          SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                          SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(request, WINHTTP_OPTION_SECURITY_FLAGS,
+                         &sec_flags, sizeof(sec_flags));
     }
 
     /* Set up cert pinning callback if requested */
@@ -760,6 +771,7 @@ bool akav_update_check(const akav_update_config_t* config,
     size_t manifest_len = 0;
     if (!akav_update_https_fetch(config->update_url,
                                   config->pinned_cert_sha256,
+                                  false, /* skip_tls_verify */
                                   &manifest_data, &manifest_len,
                                   result->error, sizeof(result->error))) {
         return false;
@@ -810,6 +822,7 @@ bool akav_update_check(const akav_update_config_t* config,
         size_t file_len = 0;
         if (!akav_update_https_fetch(file->url,
                                       config->pinned_cert_sha256,
+                                      false, /* skip_tls_verify */
                                       &file_data, &file_len,
                                       result->error, sizeof(result->error))) {
             return false;
