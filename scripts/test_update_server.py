@@ -240,15 +240,21 @@ def main():
     print(f"Manifest URL: https://localhost:{args.port}/manifest.json")
     print(f"DB URL:       https://localhost:{args.port}/signatures.akavdb")
     print()
-    print(f"To test with akavscan or unit tests, use:")
-    print(f"  Cert fingerprint: {cert_fp.hex()}")
-    print(f"  Public key blob:  (saved to {tmpdir}\\pubkey.bin)")
-    print()
-
     # Save public key blob for test consumption
-    with open(os.path.join(tmpdir, "pubkey.bin"), "wb") as f:
+    pubkey_path = os.path.join(tmpdir, "pubkey.bin")
+    with open(pubkey_path, "wb") as f:
         f.write(pub_blob)
 
+    print(f"To test with update_test.exe, run in another terminal:")
+    print()
+    print(f"  .\\build\\Release\\update_test.exe ^")
+    print(f"    --url https://localhost:{args.port}/manifest.json ^")
+    print(f"    --pubkey \"{pubkey_path}\" ^")
+    print(f"    --cert-fp {cert_fp.hex()}")
+    print()
+    print(f"  (If cert pinning fails with self-signed cert, use --no-verify")
+    print(f"   instead of --cert-fp)")
+    print()
     print(f"Serving on https://localhost:{args.port}  (Ctrl+C to stop)")
     try:
         server.serve_forever()

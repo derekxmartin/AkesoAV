@@ -130,6 +130,10 @@ target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
 add_executable(create_test_db scripts/create_test_db.cpp)
 target_link_libraries(create_test_db PRIVATE akesoav_core)
 
+# ── update_test.exe (update client integration test tool) ──
+add_executable(update_test tools/update_test.cpp)
+target_link_libraries(update_test PRIVATE akesoav_core)
+
 # ── akesoav-service.exe (Windows service + named pipe) ──
 add_executable(akesoav-service src/service/akesoav_service.cpp)
 target_link_libraries(akesoav-service PRIVATE akesoav_core)
