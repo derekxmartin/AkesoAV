@@ -268,6 +268,14 @@ static bool read_operand(akav_x86_emu_t* emu, const akav_x86_operand_t* op, uint
     }
 }
 
+/* ── Write callback helper ────────────────────────────────────── */
+
+static inline void notify_write(akav_x86_emu_t* emu, uint32_t addr, uint32_t sz)
+{
+    if (emu->write_callback)
+        emu->write_callback(emu, addr, sz, emu->write_callback_data);
+}
+
 static bool write_operand(akav_x86_emu_t* emu, const akav_x86_operand_t* op, uint32_t val)
 {
     switch (op->type) {
@@ -278,9 +286,12 @@ static bool write_operand(akav_x86_emu_t* emu, const akav_x86_operand_t* op, uin
         return true;
     case AKAV_X86_OP_MEM: {
         uint32_t addr = compute_ea(emu, op);
-        if (op->size == 1) return akav_x86_mem_write8(&emu->mem, addr, (uint8_t)val);
-        if (op->size == 2) return akav_x86_mem_write16(&emu->mem, addr, (uint16_t)val);
-        return akav_x86_mem_write32(&emu->mem, addr, val);
+        bool ok;
+        if (op->size == 1) ok = akav_x86_mem_write8(&emu->mem, addr, (uint8_t)val);
+        else if (op->size == 2) ok = akav_x86_mem_write16(&emu->mem, addr, (uint16_t)val);
+        else ok = akav_x86_mem_write32(&emu->mem, addr, val);
+        if (ok) notify_write(emu, addr, op->size);
+        return ok;
     }
     default:
         return false;
@@ -923,6 +934,7 @@ static int execute(akav_x86_emu_t* emu, const akav_x86_insn_t* insn)
                 if (!akav_x86_mem_read32(&emu->mem, r->reg[6], &v)) goto fault;
                 if (!akav_x86_mem_write32(&emu->mem, r->reg[7], v)) goto fault;
             }
+            notify_write(emu, r->reg[7], sz);
             r->reg[6] += (uint32_t)delta;  /* ESI */
             r->reg[7] += (uint32_t)delta;  /* EDI */
             count--;
@@ -952,6 +964,7 @@ static int execute(akav_x86_emu_t* emu, const akav_x86_insn_t* insn)
             } else {
                 if (!akav_x86_mem_write32(&emu->mem, r->reg[7], r->reg[0])) goto fault;
             }
+            notify_write(emu, r->reg[7], sz);
             r->reg[7] += (uint32_t)delta;
             count--;
             if (rep) {
@@ -1072,8 +1085,14 @@ static int execute(akav_x86_emu_t* emu, const akav_x86_insn_t* insn)
     case AKAV_X86_MN_INT3:
         return emu_fault(emu, AKAV_EMU_HALT_INT3, "int3");
 
-    case AKAV_X86_MN_INT:
+    case AKAV_X86_MN_INT: {
+        uint8_t int_num = (uint8_t)insn->operands[0].imm;
+        if (emu->int_callback &&
+            emu->int_callback(emu, int_num, emu->int_callback_data)) {
+            break;  /* callback handled it, continue execution */
+        }
         return emu_fault(emu, AKAV_EMU_HALT_INT, "int");
+    }
 
     case AKAV_X86_MN_RDTSC:
         result64 = (uint64_t)emu->insn_count * 1000;
