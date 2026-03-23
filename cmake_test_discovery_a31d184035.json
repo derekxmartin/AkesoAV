@@ -1,0 +1,220 @@
+{
+  "tests": 38,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "SafeReader",
+      "tests": 12,
+      "testsuite": [
+        {
+          "name": "EmptyBuffer",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 4
+        },
+        {
+          "name": "SingleByte",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 15
+        },
+        {
+          "name": "ReadU16LE",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 31
+        },
+        {
+          "name": "ReadU32LE",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 42
+        },
+        {
+          "name": "ReadU64LE",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 53
+        },
+        {
+          "name": "BoundaryOnePastEnd",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 64
+        },
+        {
+          "name": "SkipPastEnd",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 77
+        },
+        {
+          "name": "ZeroLengthReadBytes",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 90
+        },
+        {
+          "name": "ReadBytes",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 101
+        },
+        {
+          "name": "ReadBytesTooMany",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 113
+        },
+        {
+          "name": "SIZEMAXOverflow",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 123
+        },
+        {
+          "name": "SeekTo",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_safe_reader.cpp",
+          "line": 134
+        }
+      ]
+    },
+    {
+      "name": "FileType",
+      "tests": 12,
+      "testsuite": [
+        {
+          "name": "DetectPE",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 4
+        },
+        {
+          "name": "DetectELF",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 10
+        },
+        {
+          "name": "DetectZIP",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 16
+        },
+        {
+          "name": "DetectZIPEndOfCentralDir",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 22
+        },
+        {
+          "name": "DetectGZIP",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 28
+        },
+        {
+          "name": "DetectPDF",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 34
+        },
+        {
+          "name": "DetectOLE2",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 40
+        },
+        {
+          "name": "DetectTAR",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 46
+        },
+        {
+          "name": "UnknownData",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 58
+        },
+        {
+          "name": "EmptyFile",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 64
+        },
+        {
+          "name": "SingleByteFile",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 69
+        },
+        {
+          "name": "TypeNameStrings",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_file_type.cpp",
+          "line": 75
+        }
+      ]
+    },
+    {
+      "name": "EicarTest",
+      "tests": 5,
+      "testsuite": [
+        {
+          "name": "DetectsEicarString",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_eicar.cpp",
+          "line": 26
+        },
+        {
+          "name": "CleanBufferNotDetected",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_eicar.cpp",
+          "line": 41
+        },
+        {
+          "name": "EmptyBufferClean",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_eicar.cpp",
+          "line": 56
+        },
+        {
+          "name": "EicarWithPrefix",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_eicar.cpp",
+          "line": 68
+        },
+        {
+          "name": "ScanTimePopulated",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_eicar.cpp",
+          "line": 86
+        }
+      ]
+    },
+    {
+      "name": "EngineLifecycle",
+      "tests": 9,
+      "testsuite": [
+        {
+          "name": "CreateInitDestroy",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 5
+        },
+        {
+          "name": "CreateNullPtr",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 14
+        },
+        {
+          "name": "InitNullEngine",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 19
+        },
+        {
+          "name": "DestroyNullEngine",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 24
+        },
+        {
+          "name": "ScanBeforeInit",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 29
+        },
+        {
+          "name": "VersionString",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 45
+        },
+        {
+          "name": "StrerrorAllCodes",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 52
+        },
+        {
+          "name": "DefaultOptions",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 67
+        },
+        {
+          "name": "CacheStatsInitial",
+          "file": "C:\\Users\\derek\\Desktop\\Projects\\controls\\SentinelAV\\tests\\unit\\test_engine_lifecycle.cpp",
+          "line": 83
+        }
+      ]
+    }
+  ]
+}

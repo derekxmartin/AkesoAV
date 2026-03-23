@@ -179,6 +179,18 @@ int main(int argc, char* argv[])
     /* Step 3: Verify manifest signature */
     if (!pubkey.empty() && manifest.has_manifest_signature) {
         printf("\n=== Step 3: Verifying manifest RSA signature ===\n");
+
+        /* Debug: dump raw_body to file for comparison */
+        {
+            FILE* dbg = fopen("debug_raw_body.json", "wb");
+            if (dbg) {
+                fwrite(manifest.raw_body, 1, manifest.raw_body_len, dbg);
+                fclose(dbg);
+                printf("[DEBUG] raw_body (%zu bytes) written to debug_raw_body.json\n",
+                       manifest.raw_body_len);
+            }
+        }
+
         bool sig_ok = akav_update_rsa_verify(
             (const uint8_t*)manifest.raw_body, manifest.raw_body_len,
             manifest.manifest_signature, AKAV_UPDATE_RSA_SIG_LEN,

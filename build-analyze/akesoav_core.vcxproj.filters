@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\api.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\engine_shims.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\file_type.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\parsers\safe_reader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\parsers\pe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\signatures\bloom.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\signatures\hash_matcher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\signatures\crc_matcher.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\signatures\aho_corasick.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\database\sigdb.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\scanner.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\parsers\zip.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\parsers\gzip.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\parsers\tar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\heuristics\static_analyzer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{F28A99B4-E230-3F21-A238-8D278C359C96}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

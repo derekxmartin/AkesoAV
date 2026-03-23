@@ -1,0 +1,5 @@
+if(EXISTS "C:/Users/derek/Desktop/Projects/controls/SentinelAV/build-analyze/akesoav_tests[1]_tests.cmake")
+  include("C:/Users/derek/Desktop/Projects/controls/SentinelAV/build-analyze/akesoav_tests[1]_tests.cmake")
+else()
+  add_test(akesoav_tests_NOT_BUILT akesoav_tests_NOT_BUILT)
+endif()

@@ -1,0 +1,69 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\src\cli\akavscan.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\api.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\engine.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\engine_shims.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\file_type.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\safe_reader.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\pe.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\bloom.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\hash_matcher.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\crc_matcher.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\aho_corasick.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\sigdb.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\scanner.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\zip.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\gzip.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\tar.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+    <Object Include="C:\Users\derek\Desktop\Projects\controls\SentinelAV\build-analyze\akesoav_core.dir\$(Configuration)\static_analyzer.obj">
+      <Filter>Object Libraries</Filter>
+    </Object>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Object Libraries">
+      <UniqueIdentifier>{B4B545F6-2A71-3A7B-BABA-37673F82ABE4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{F28A99B4-E230-3F21-A238-8D278C359C96}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
