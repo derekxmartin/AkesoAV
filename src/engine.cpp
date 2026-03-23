@@ -6,6 +6,7 @@
 #include "parsers/tar.h"
 #include "signatures/hash_matcher.h"
 #include "unpacker/upx.h"
+#include "unpacker/generic.h"
 #include "parsers/pdf.h"
 #include "parsers/ole2.h"
 #include "siem/event_serialize.h"
@@ -155,6 +156,34 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
                     /* Annotate that detection came from unpacked content */
                     char packed_note[64];
                     snprintf(packed_note, sizeof(packed_note), "upx:%s",
+                             inner_result.scanner_id);
+                    strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                              packed_note, _TRUNCATE);
+                }
+                free(unpacked);
+            }
+        }
+    }
+
+    /* If UPX didn't match, try generic emulation-based unpacker on PE files */
+    if (!result->found && opts->scan_packed && ftype == AKAV_FILETYPE_PE)
+    {
+        if (akav_generic_is_likely_packed(buf, len))
+        {
+            uint8_t* unpacked = nullptr;
+            size_t unpacked_len = 0;
+            akav_gunpack_info_t ginfo;
+            if (akav_generic_unpack(buf, len, &unpacked, &unpacked_len, &ginfo))
+            {
+                akav_scan_options_t inner_opts = *opts;
+                inner_opts.scan_packed = 0;
+                akav_scan_result_t inner_result;
+                scan_buffer(unpacked, unpacked_len, name, &inner_opts, &inner_result);
+
+                if (inner_result.found) {
+                    *result = inner_result;
+                    char packed_note[64];
+                    snprintf(packed_note, sizeof(packed_note), "generic:%s",
                              inner_result.scanner_id);
                     strncpy_s(result->scanner_id, sizeof(result->scanner_id),
                               packed_note, _TRUNCATE);
