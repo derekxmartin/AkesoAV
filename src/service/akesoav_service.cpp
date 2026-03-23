@@ -22,6 +22,7 @@
 #include "akesoav.h"
 #include "service/scheduler.h"
 #include "protection/self_protect.h"
+#include "protection/watchdog.h"
 
 #include <cstdio>
 #include <cstring>
@@ -63,6 +64,9 @@ static bool                    g_scheduler_running = false;
 static akav_integrity_monitor_t g_integrity_monitor;
 static HANDLE                   g_integrity_thread = NULL;
 static bool                     g_integrity_running = false;
+
+/* Watchdog heartbeat responder */
+static void*                    g_heartbeat_handle = NULL;
 
 /* ── Pipe protocol helpers ──────────────────────────────────────── */
 
@@ -515,11 +519,24 @@ static bool engine_init()
             NULL, 0, integrity_thread_fn, NULL, 0, NULL);
     }
 
+    /* Start watchdog heartbeat responder */
+    g_heartbeat_handle = akav_heartbeat_start();
+    if (g_heartbeat_handle) {
+        fprintf(stderr, "[service] Watchdog heartbeat responder started\n");
+    }
+
     return true;
 }
 
 static void engine_shutdown()
 {
+    /* Stop watchdog heartbeat responder */
+    if (g_heartbeat_handle) {
+        akav_heartbeat_stop(g_heartbeat_handle);
+        g_heartbeat_handle = NULL;
+        fprintf(stderr, "[service] Watchdog heartbeat responder stopped\n");
+    }
+
     /* Stop integrity monitor */
     if (g_integrity_running) {
         g_integrity_running = false;
