@@ -2,6 +2,7 @@
  * These are compiled as C++ and can directly invoke Engine methods. */
 
 #include "engine_internal.h"
+#include "update/update_client.h"
 #include <new>
 
 extern "C"
@@ -123,10 +124,31 @@ akav_error_t akav_shim_load_plugins(akav_engine_t* engine, const char* plugin_di
 
 akav_error_t akav_shim_update_signatures(akav_engine_t* engine, const char* update_url)
 {
-    (void)engine;
-    (void)update_url;
-    /* TODO: Phase 10 */
-    return AKAV_ERROR;
+    if (!engine || !update_url)
+        return AKAV_ERROR;
+
+    /* Build update config from engine state */
+    akav_update_config_t config;
+    memset(&config, 0, sizeof(config));
+    config.update_url = update_url;
+    /* Use the engine's current DB path (stored during load_signatures).
+     * For now we use a default path — the service sets the real path. */
+    config.db_path = nullptr;  /* caller must ensure DB path is set */
+    config.current_version = 0;
+    config.pinned_cert_sha256 = nullptr;  /* production: set from compiled-in fingerprint */
+    config.rsa_public_key = AKAV_UPDATE_RSA_PUBKEY;
+    config.rsa_public_key_len = AKAV_UPDATE_RSA_PUBKEY_LEN;
+
+    akav_update_result_t result;
+    if (!akav_update_check(&config, &result))
+        return AKAV_ERROR;
+
+    /* If updated, reload signatures */
+    if (result.updated && config.db_path) {
+        return engine->impl.load_signatures(config.db_path);
+    }
+
+    return AKAV_OK;
 }
 
 } /* extern "C" */
