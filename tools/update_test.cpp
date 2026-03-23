@@ -254,7 +254,7 @@ int main(int argc, char* argv[])
         if (sig_ok) {
             printf("[OK] Manifest RSA signature VALID\n");
         } else {
-            printf("[FAIL] Manifest RSA signature INVALID — tampered or wrong key\n");
+            printf("[FAIL] Manifest RSA signature INVALID -tampered or wrong key\n");
             free(manifest_data);
             return 1;
         }
@@ -289,7 +289,7 @@ int main(int argc, char* argv[])
         if (memcmp(file_hash, file->sha256, 32) == 0) {
             printf("MATCH\n");
         } else {
-            printf("MISMATCH — file is tampered!\n");
+            printf("MISMATCH -file is tampered!\n");
             free(file_data);
             free(manifest_data);
             return 1;
@@ -358,7 +358,7 @@ int main(int argc, char* argv[])
     printf("\n=== Bonus: Testing rollback ===\n");
     char rb_error[256] = {0};
     if (akav_update_rollback(db_path, rb_error, sizeof(rb_error))) {
-        printf("[OK] Rollback successful — %s restored from .prev\n", db_path);
+        printf("[OK] Rollback successful -%s restored from .prev\n", db_path);
     } else {
         printf("[INFO] Rollback skipped: %s\n", rb_error);
     }
