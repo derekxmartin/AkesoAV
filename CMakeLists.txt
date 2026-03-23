@@ -85,6 +85,7 @@ set(AKAV_ENGINE_SOURCES
     src/unpacker/upx.cpp
     src/unpacker/generic.cpp
     src/plugin/plugin_loader.cpp
+    src/protection/self_protect.cpp
     src/signatures/yara_scanner.cpp
     src/signatures/graph_sig.cpp
     src/emulator/x86_decode.cpp
@@ -215,6 +216,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_graph_sig.cpp
         tests/unit/test_ml_classifier.cpp
         tests/unit/test_dynamic_scorer.cpp
+        tests/unit/test_self_protect.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
