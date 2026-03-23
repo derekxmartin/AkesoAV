@@ -441,7 +441,15 @@ void akav_scanner_load_heuristic_weights(akav_scanner_t* scanner,
         /* Load ML classifier model if available */
         snprintf(path, sizeof(path), "%s/ml_model.json", config_dir);
         akav_ml_model_load(&scanner->ml_model, path);
+
+        /* Load dynamic scorer weights */
+        snprintf(path, sizeof(path), "%s/dynamic_weights.json", config_dir);
+        if (akav_dynamic_weights_load_json(&scanner->dynamic_weights, path))
+            scanner->dynamic_weights_loaded = true;
     }
+
+    if (!scanner->dynamic_weights_loaded)
+        akav_dynamic_weights_default(&scanner->dynamic_weights);
 
     scanner->heuristic_weights_loaded = true;
 }
