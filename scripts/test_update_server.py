@@ -50,13 +50,13 @@ def generate_rsa_keypair():
     pub = private_key.public_key()
     pub_numbers = pub.public_numbers()
 
-    # Build BCRYPT_RSAPUBLIC_BLOB
-    # struct { ULONG Magic, BitLength, cbPublicExp, cbModulus; }
+    # Build BCRYPT_RSAPUBLIC_BLOB (BCRYPT_RSAKEY_BLOB structure)
+    # struct { ULONG Magic, BitLength, cbPublicExp, cbModulus, cbPrime1, cbPrime2; }
     # followed by exponent bytes (big-endian) and modulus bytes (big-endian)
     e_bytes = pub_numbers.e.to_bytes(3, 'big')  # 65537 = 3 bytes
     n_bytes = pub_numbers.n.to_bytes(256, 'big')
 
-    blob = struct.pack('<IIII', 0x31415352, 2048, len(e_bytes), len(n_bytes))
+    blob = struct.pack('<IIIIII', 0x31415352, 2048, len(e_bytes), len(n_bytes), 0, 0)
     blob += e_bytes + n_bytes
 
     return private_key, blob
