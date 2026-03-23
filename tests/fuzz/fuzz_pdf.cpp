@@ -32,33 +32,30 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
     /* Full analysis (suspicious patterns, anomalies) */
     akav_pdf_analyze(&pdf, data, size);
 
-    /* Exercise stream decompression on first few objects if they exist */
-    for (uint32_t i = 0; i < pdf.num_objects && i < 10; i++) {
-        if (pdf.objects[i].stream_offset > 0 && pdf.objects[i].stream_len > 0 &&
-            pdf.objects[i].stream_offset + pdf.objects[i].stream_len <= size) {
-            uint8_t* out = nullptr;
-            size_t out_len = 0;
+    /* Exercise stream decompression with each filter on raw input */
+    {
+        uint8_t* out = nullptr;
+        size_t out_len = 0;
+        akav_pdf_filter_t filter;
 
-            /* Try FlateDecode */
-            akav_pdf_filter_t filter;
-            memset(&filter, 0, sizeof(filter));
-            filter.type = AKAV_PDF_FILTER_FLATE;
-            akav_pdf_decompress_stream(
-                data + pdf.objects[i].stream_offset,
-                pdf.objects[i].stream_len,
-                &filter, 1, &out, &out_len);
-            free(out);
+        filter = AKAV_PDF_FILTER_FLATE;
+        akav_pdf_decompress_stream(data, size, &filter, 1, &out, &out_len);
+        free(out);
 
-            /* Try ASCII85 */
-            out = nullptr;
-            out_len = 0;
-            filter.type = AKAV_PDF_FILTER_ASCII85;
-            akav_pdf_decompress_stream(
-                data + pdf.objects[i].stream_offset,
-                pdf.objects[i].stream_len,
-                &filter, 1, &out, &out_len);
-            free(out);
-        }
+        out = nullptr; out_len = 0;
+        filter = AKAV_PDF_FILTER_ASCII85;
+        akav_pdf_decompress_stream(data, size, &filter, 1, &out, &out_len);
+        free(out);
+
+        out = nullptr; out_len = 0;
+        filter = AKAV_PDF_FILTER_ASCIIHEX;
+        akav_pdf_decompress_stream(data, size, &filter, 1, &out, &out_len);
+        free(out);
+
+        out = nullptr; out_len = 0;
+        filter = AKAV_PDF_FILTER_LZW;
+        akav_pdf_decompress_stream(data, size, &filter, 1, &out, &out_len);
+        free(out);
     }
 
     /* Also fuzz standalone decoders directly */
