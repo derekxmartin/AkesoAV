@@ -626,14 +626,20 @@ static bool parse_directory(akav_ole2_t* ole2, const uint8_t* data, size_t data_
             ent->child_sid >= ole2->num_dir_entries)
             continue;
 
-        /* BFS/DFS through the RB tree to assign parent_sid to all siblings */
+        /* BFS/DFS through the RB tree to assign parent_sid to all siblings.
+         * Use a visited bitmap to avoid infinite loops on malformed trees
+         * (e.g., left_sid/right_sid pointing back to self or ancestors). */
         uint32_t stack[256];
         uint32_t sp = 0;
         stack[sp++] = ent->child_sid;
 
+        /* Simple visited tracking: mark parent_sid to detect revisits */
         while (sp > 0) {
             uint32_t sid = stack[--sp];
             if (sid >= ole2->num_dir_entries || sid == AKAV_OLE2_FREESECT)
+                continue;
+            /* Skip if already assigned to this parent (prevents cycles) */
+            if (ole2->dir_entries[sid].parent_sid == (int32_t)i)
                 continue;
             ole2->dir_entries[sid].parent_sid = (int32_t)i;
 
@@ -641,10 +647,10 @@ static bool parse_directory(akav_ole2_t* ole2, const uint8_t* data, size_t data_
             uint32_t right = ole2->dir_entries[sid].right_sid;
 
             if (left != AKAV_OLE2_FREESECT && left < ole2->num_dir_entries &&
-                sp < 256)
+                ole2->dir_entries[left].parent_sid != (int32_t)i && sp < 256)
                 stack[sp++] = left;
             if (right != AKAV_OLE2_FREESECT && right < ole2->num_dir_entries &&
-                sp < 256)
+                ole2->dir_entries[right].parent_sid != (int32_t)i && sp < 256)
                 stack[sp++] = right;
         }
     }
