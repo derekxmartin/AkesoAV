@@ -49,9 +49,32 @@ typedef struct {
     uint32_t eflags;
 } akav_x86_regs_t;
 
+/* ── Callback types ────────────────────────────────────────────── */
+
+typedef struct akav_x86_emu_t akav_x86_emu_t;
+
+/**
+ * INT instruction callback. Called when INT N is executed.
+ * If callback returns true, execution continues (INT was handled).
+ * If false, emulator halts with AKAV_EMU_HALT_INT.
+ *   int_num: the interrupt number (e.g. 0x2E)
+ */
+typedef bool (*akav_emu_int_callback_t)(akav_x86_emu_t* emu,
+                                         uint8_t int_num,
+                                         void* user_data);
+
+/**
+ * Memory write callback. Called after every write to emulator memory.
+ * Used for tracking writes for unpacker detection.
+ */
+typedef void (*akav_emu_write_callback_t)(akav_x86_emu_t* emu,
+                                           uint32_t addr,
+                                           uint32_t size,
+                                           void* user_data);
+
 /* ── Emulator context ──────────────────────────────────────────── */
 
-typedef struct {
+struct akav_x86_emu_t {
     akav_x86_regs_t  regs;
     akav_x86_mem_t   mem;
 
@@ -61,7 +84,13 @@ typedef struct {
     bool      halted;
     uint8_t   halt_reason;
     char      error[128];
-} akav_x86_emu_t;
+
+    /* Callbacks (P8-T3) */
+    akav_emu_int_callback_t   int_callback;
+    void*                     int_callback_data;
+    akav_emu_write_callback_t write_callback;
+    void*                     write_callback_data;
+};
 
 /* ── Public API ────────────────────────────────────────────────── */
 
