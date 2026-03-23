@@ -21,6 +21,7 @@
 
 #include "akesoav.h"
 #include "service/scheduler.h"
+#include "protection/self_protect.h"
 
 #include <cstdio>
 #include <cstring>
@@ -57,6 +58,11 @@ static std::chrono::steady_clock::time_point g_start_time;
 /* Scheduler (service-owned, C++ object) */
 static akav::Scheduler         g_scheduler;
 static bool                    g_scheduler_running = false;
+
+/* Self-protection integrity monitor */
+static akav_integrity_monitor_t g_integrity_monitor;
+static HANDLE                   g_integrity_thread = NULL;
+static bool                     g_integrity_running = false;
 
 /* ── Pipe protocol helpers ──────────────────────────────────────── */
 
@@ -404,6 +410,33 @@ static void pipe_server_loop()
     }
 }
 
+/* ── Integrity monitor thread ───────────────────────────────────── */
+
+static unsigned __stdcall integrity_thread_fn(void* arg)
+{
+    (void)arg;
+    DWORD interval_ms = g_integrity_monitor.check_interval_sec * 1000;
+
+    while (g_integrity_running) {
+        /* Sleep in small increments so we can exit promptly */
+        for (DWORD elapsed = 0; elapsed < interval_ms && g_integrity_running; elapsed += 1000)
+            Sleep(1000);
+
+        if (!g_integrity_running)
+            break;
+
+        akav_integrity_result_t result = akav_integrity_monitor_check(&g_integrity_monitor);
+        if (result.files_modified > 0 || result.files_missing > 0) {
+            fprintf(stderr, "[SELF-PROTECT] INTEGRITY ALERT: %d modified, %d missing\n",
+                    result.files_modified, result.files_missing);
+            for (int i = 0; i < 4 && result.modified_paths[i][0]; i++) {
+                fprintf(stderr, "[SELF-PROTECT]   -> %s\n", result.modified_paths[i]);
+            }
+        }
+    }
+    return 0;
+}
+
 /* ── Engine lifecycle ───────────────────────────────────────────── */
 
 static bool engine_init()
@@ -460,11 +493,45 @@ static bool engine_init()
         }
     }
 
+    /* Start file integrity monitor — hash engine binaries */
+    akav_integrity_monitor_init(&g_integrity_monitor, 60);
+    {
+        /* Get our own module path to determine the install directory */
+        char exe_path[520] = {0};
+        GetModuleFileNameA(NULL, exe_path, sizeof(exe_path) - 1);
+        /* Strip filename to get directory */
+        char* last_sep = strrchr(exe_path, '\\');
+        if (last_sep) *last_sep = '\0';
+
+        int added = akav_integrity_monitor_add_dir(&g_integrity_monitor, exe_path);
+        fprintf(stderr, "[service] Integrity monitor: tracking %d files in %s\n",
+                added, exe_path);
+    }
+
+    /* Launch integrity monitor thread */
+    if (g_integrity_monitor.file_count > 0) {
+        g_integrity_running = true;
+        g_integrity_thread = (HANDLE)_beginthreadex(
+            NULL, 0, integrity_thread_fn, NULL, 0, NULL);
+    }
+
     return true;
 }
 
 static void engine_shutdown()
 {
+    /* Stop integrity monitor */
+    if (g_integrity_running) {
+        g_integrity_running = false;
+        if (g_integrity_thread) {
+            WaitForSingleObject(g_integrity_thread, 5000);
+            CloseHandle(g_integrity_thread);
+            g_integrity_thread = NULL;
+        }
+        akav_integrity_monitor_destroy(&g_integrity_monitor);
+        fprintf(stderr, "[service] Integrity monitor stopped\n");
+    }
+
     /* Stop scheduler first */
     if (g_scheduler_running) {
         g_scheduler.stop();
@@ -522,6 +589,14 @@ static VOID WINAPI svc_main(DWORD argc, LPSTR* argv)
     g_svc_status.dwControlsAccepted = 0;
     g_svc_status.dwWaitHint = 30000;
     SetServiceStatus(g_svc_status_handle, &g_svc_status);
+
+    /* Harden process DACL — deny terminate/VM access from non-admin */
+    if (akav_self_protect_harden_process()) {
+        fprintf(stderr, "[service] Process DACL hardened\n");
+    } else {
+        fprintf(stderr, "[service] Warning: DACL hardening failed (error %lu)\n",
+                GetLastError());
+    }
 
     /* Create stop event */
     g_stop_event = CreateEvent(NULL, TRUE, FALSE, NULL);

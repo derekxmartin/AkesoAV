@@ -5,6 +5,7 @@
  */
 
 #include "plugin/plugin_loader.h"
+#include "protection/self_protect.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -32,6 +33,14 @@ akav_error_t akav_plugin_manager_load(akav_plugin_manager_t* mgr,
         fprintf(stderr, "[plugin] Cannot load '%s': max plugin limit (%d) reached\n",
                 dll_path, AKAV_MAX_PLUGINS);
         return AKAV_ERROR;
+    }
+
+    /* Verify Authenticode signature before loading (§5.11).
+     * In dev/test mode (no signed DLLs), unsigned files are allowed
+     * with a warning. Set require_signed=true for production. */
+    if (!akav_self_protect_verify_dll(dll_path, false /* require_signed */)) {
+        fprintf(stderr, "[plugin] '%s': blocked by self-protection\n", dll_path);
+        return AKAV_ERROR_INVALID;
     }
 
     /* Load the DLL */
