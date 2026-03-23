@@ -18,10 +18,6 @@
 
 #include "update/update_client.h"
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <bcrypt.h>
-
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -184,77 +180,15 @@ int main(int argc, char* argv[])
     if (!pubkey.empty() && manifest.has_manifest_signature) {
         printf("\n=== Step 3: Verifying manifest RSA signature ===\n");
 
-        /* Debug: dump raw_body to file for comparison */
-        {
-            FILE* dbg = fopen("debug_raw_body.json", "wb");
-            if (dbg) {
-                fwrite(manifest.raw_body, 1, manifest.raw_body_len, dbg);
-                fclose(dbg);
-                printf("[DEBUG] raw_body (%zu bytes) written to debug_raw_body.json\n",
-                       manifest.raw_body_len);
-            }
-        }
-
-        /* Debug: check if signature bytes look reasonable */
-        {
-            printf("[DEBUG] Signature first 8 bytes: ");
-            for (int i = 0; i < 8; i++)
-                printf("%02x", manifest.manifest_signature[i]);
-            printf("\n");
-            printf("[DEBUG] Signature last 8 bytes: ");
-            for (int i = 248; i < 256; i++)
-                printf("%02x", manifest.manifest_signature[i]);
-            printf("\n");
-            /* Check if signature is all zeros (decode failed) */
-            int nonzero = 0;
-            for (int i = 0; i < 256; i++)
-                if (manifest.manifest_signature[i]) nonzero++;
-            printf("[DEBUG] Non-zero signature bytes: %d / 256\n", nonzero);
-            printf("[DEBUG] pubkey size: %zu bytes\n", pubkey.size());
-        }
-
-        /* Debug: manual verification with NTSTATUS output */
-        bool sig_ok = false;
-        {
-            /* Hash the raw_body */
-            uint8_t hash[32];
-            akav_update_sha256_buffer((const uint8_t*)manifest.raw_body,
-                                      manifest.raw_body_len, hash);
-            printf("[DEBUG] raw_body SHA-256: ");
-            for (int i = 0; i < 32; i++) printf("%02x", hash[i]);
-            printf("\n");
-
-            BCRYPT_ALG_HANDLE alg = NULL;
-            BCRYPT_KEY_HANDLE key = NULL;
-            NTSTATUS st;
-
-            st = BCryptOpenAlgorithmProvider(&alg, BCRYPT_RSA_ALGORITHM, NULL, 0);
-            printf("[DEBUG] BCryptOpenAlgorithmProvider: 0x%08lx\n", st);
-
-            st = BCryptImportKeyPair(alg, NULL, BCRYPT_RSAPUBLIC_BLOB,
-                                      &key, (PUCHAR)pubkey.data(),
-                                      (ULONG)pubkey.size(), 0);
-            printf("[DEBUG] BCryptImportKeyPair: 0x%08lx\n", st);
-
-            BCRYPT_PKCS1_PADDING_INFO padding;
-            padding.pszAlgId = BCRYPT_SHA256_ALGORITHM;
-
-            st = BCryptVerifySignature(key, &padding,
-                                        hash, sizeof(hash),
-                                        (PUCHAR)manifest.manifest_signature,
-                                        AKAV_UPDATE_RSA_SIG_LEN,
-                                        BCRYPT_PAD_PKCS1);
-            printf("[DEBUG] BCryptVerifySignature: 0x%08lx\n", st);
-            sig_ok = (st == 0);
-
-            if (key) BCryptDestroyKey(key);
-            if (alg) BCryptCloseAlgorithmProvider(alg, 0);
-        }
+        bool sig_ok = akav_update_rsa_verify(
+            (const uint8_t*)manifest.raw_body, manifest.raw_body_len,
+            manifest.manifest_signature, AKAV_UPDATE_RSA_SIG_LEN,
+            pubkey.data(), pubkey.size());
 
         if (sig_ok) {
             printf("[OK] Manifest RSA signature VALID\n");
         } else {
-            printf("[FAIL] Manifest RSA signature INVALID -tampered or wrong key\n");
+            printf("[FAIL] Manifest RSA signature INVALID - tampered or wrong key\n");
             free(manifest_data);
             return 1;
         }

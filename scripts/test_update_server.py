@@ -141,12 +141,6 @@ def build_manifest(private_key, signing_key_blob, akavdb_data, port,
     # Sign the manifest (with empty manifest_signature field)
     body_json = json.dumps(manifest_body, indent=2)
 
-    # Debug: dump signed body to file for comparison
-    with open("debug_signed_body.json", "w") as f:
-        f.write(body_json)
-    print(f"[DEBUG] Signed body ({len(body_json)} bytes) written to debug_signed_body.json")
-    print(f"[DEBUG] Signed body SHA-256: {hashlib.sha256(body_json.encode()).hexdigest()}")
-
     if tamper_manifest:
         # Sign, then modify the manifest so signature is invalid
         manifest_sig = rsa_sign(private_key, body_json.encode())
