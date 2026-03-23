@@ -793,7 +793,8 @@ bool akav_x86_decode(akav_x86_insn_t* insn, const uint8_t* code, size_t len)
                 src_size = 1;  /* r/m8 */
             else
                 src_size = 2;  /* r/m16 */
-            op0->size = op_size;  /* destination is full-size */
+            /* Destination is always full-size (32-bit, or 16-bit with 66 prefix) */
+            op0->size = (insn->prefixes & AKAV_X86_PFX_OPSIZE) ? 2 : 4;
         }
         if (!decode_modrm_operand(insn, op1_rm, code, len, &pos, src_size)) goto truncated;
         break;
@@ -885,6 +886,14 @@ bool akav_x86_decode(akav_x86_insn_t* insn, const uint8_t* code, size_t len)
         op0->type = AKAV_X86_OP_REG;
         op0->size = op_size;
         op0->reg  = reg_id;
+
+        /* XCHG r32, EAX (opcodes 91-97): add EAX as second operand */
+        if (mnemonic == AKAV_X86_MN_XCHG) {
+            akav_x86_operand_t* op1_eax = &insn->operands[insn->num_operands++];
+            op1_eax->type = AKAV_X86_OP_REG;
+            op1_eax->size = op_size;
+            op1_eax->reg  = AKAV_X86_REG_EAX;
+        }
 
         /* MOV r32, imm32 / MOV r16, imm16 */
         if (flags & F_IMM_FULL) {
