@@ -278,6 +278,19 @@ def build_aho_corasick_section(sigs: list, strtab: StringTable) -> tuple:
     return bytes(data), len(sigs)
 
 
+def build_fuzzy_section(sigs: list, strtab) -> tuple:
+    """Build fuzzy hash section. Each entry = 128-byte hash (null-padded) + 4-byte name_index."""
+    FUZZY_HASH_MAX = 128
+    data = bytearray()
+    for sig in sigs:
+        hash_str = sig["hash"].encode("utf-8")
+        padded = hash_str[:FUZZY_HASH_MAX - 1].ljust(FUZZY_HASH_MAX, b'\x00')
+        name_idx = strtab.add(sig["name"])
+        data.extend(padded)
+        data.extend(struct.pack("<I", name_idx))
+    return bytes(data), len(sigs)
+
+
 def build_yara_section(yara_defs: list) -> tuple:
     """Build YARA section from a list of rule definitions.
 
@@ -328,6 +341,11 @@ def compile_db(sig_defs: dict, private_key_path: str = None) -> bytes:
     if "crc32" in sig_defs and sig_defs["crc32"]:
         data, count = build_crc32_section(sig_defs["crc32"], strtab)
         sections.append((SECTION_CRC32, data, count))
+        total_sigs += count
+
+    if "fuzzy" in sig_defs and sig_defs["fuzzy"]:
+        data, count = build_fuzzy_section(sig_defs["fuzzy"], strtab)
+        sections.append((SECTION_FUZZY_HASH, data, count))
         total_sigs += count
 
     if "bytestream" in sig_defs and sig_defs["bytestream"]:
