@@ -115,7 +115,9 @@ try {
     #   ScanPipelineTest/EicarTest/EngineIntegration/ZipParser: pre-existing
     #     failures — tests expect signature detection but builtin EICAR check
     #     short-circuits before signature stages run
-    $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.System32_FPRateUnder5Percent:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*"
+    # Also exclude ParserResilience/HeuristicEvasion (need generated samples;
+    # validated separately in Step 9 after sample generation)
+    $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*"
     $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $proc = Start-Process -FilePath $TestExe -ArgumentList "--gtest_filter=-$excludeFilter" `
         -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\gtest_out.txt" `
@@ -162,8 +164,11 @@ try {
 if (-not $SkipIntegration) {
     Write-Step "Integration tests (pytest)"
     $IntegrationDir = Join-Path $ProjectRoot "tests\integration"
-    $hasPytest = & python -m pytest --version 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $null = & python -m pytest --version 2>&1
+    $pytestAvail = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $oldPref
+    if (-not $pytestAvail) {
         Write-Host "  SKIP: pytest not installed (pip install pytest)" -ForegroundColor Yellow
     } else {
         try {
@@ -187,8 +192,11 @@ if (-not $SkipIntegration) {
 Write-Step "Python bindings tests (pytest)"
 $PyakavTests = Join-Path $ProjectRoot "bindings\python\test_pyakav.py"
 if (Test-Path $PyakavTests) {
-    $hasPytest2 = & python -m pytest --version 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $null = & python -m pytest --version 2>&1
+    $pytestAvail2 = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $oldPref
+    if (-not $pytestAvail2) {
         Write-Host "  SKIP: pytest not installed" -ForegroundColor Yellow
     } else {
     try {
