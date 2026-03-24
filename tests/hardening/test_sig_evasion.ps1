@@ -286,7 +286,7 @@ $sigsA = @{
     bytestream = @(@{ name = "Evasion.Test.A.Pattern"; pattern = $markerHex })
 } | ConvertTo-Json -Depth 4
 $sigsPathA = "$SamplesDir\sigs_a.json"
-$sigsA | Set-Content -Path $sigsPathA -Encoding UTF8
+[System.IO.File]::WriteAllText($sigsPathA, $sigsA, [System.Text.UTF8Encoding]::new($false))
 
 # Compile DB
 $dbPathA = "$SamplesDir\evasion_a.akavdb"
@@ -353,7 +353,7 @@ if (-not $upxExe) {
         bytestream = @(@{ name = "Evasion.Test.B.Pattern"; pattern = $markerHexB })
     } | ConvertTo-Json -Depth 4
     $sigsPathB = "$SamplesDir\sigs_b.json"
-    $sigsB | Set-Content -Path $sigsPathB -Encoding UTF8
+    [System.IO.File]::WriteAllText($sigsPathB, $sigsB, [System.Text.UTF8Encoding]::new($false))
 
     $dbPathB = "$SamplesDir\evasion_b.akavdb"
     Compile-AkavDb -SigsJson $sigsPathB -OutputPath $dbPathB
@@ -447,7 +447,7 @@ $sigsC = @{
     yara = @(@{ source = $yaraRule })
 } | ConvertTo-Json -Depth 4
 $sigsPathC = "$SamplesDir\sigs_c.json"
-$sigsC | Set-Content -Path $sigsPathC -Encoding UTF8
+[System.IO.File]::WriteAllText($sigsPathC, $sigsC, [System.Text.UTF8Encoding]::new($false))
 
 $dbPathC = "$SamplesDir\evasion_c.akavdb"
 Compile-AkavDb -SigsJson $sigsPathC -OutputPath $dbPathC
@@ -510,7 +510,7 @@ if ($LASTEXITCODE -ne 0 -or -not $fuzzyD) {
         fuzzy = @(@{ name = "Evasion.Test.D.Fuzzy"; hash = $fuzzyD })
     } | ConvertTo-Json -Depth 4
     $sigsPathD = "$SamplesDir\sigs_d.json"
-    $sigsD | Set-Content -Path $sigsPathD -Encoding UTF8
+    [System.IO.File]::WriteAllText($sigsPathD, $sigsD, [System.Text.UTF8Encoding]::new($false))
 
     $dbPathD = "$SamplesDir\evasion_d.akavdb"
     Compile-AkavDb -SigsJson $sigsPathD -OutputPath $dbPathD
