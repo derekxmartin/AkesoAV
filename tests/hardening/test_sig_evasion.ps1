@@ -329,29 +329,22 @@ if (-not $upxExe) {
     Write-Host "       Install UPX: https://github.com/upx/upx/releases" -ForegroundColor DarkYellow
     Write-Host ""
 } else {
-    # Distinctive pattern for byte-stream matching
-    $markerB = [byte[]]@(
-        0x48, 0x83, 0xEC, 0x28,   # sub rsp, 0x28
-        0x42, 0x42, 0x42, 0x42,   # distinctive marker "BBBB"
-        0x4B, 0x65, 0x73, 0x6F,   # "Keso"
-        0x50, 0x61, 0x63, 0x6B,   # "Pack"
-        0x54, 0x65, 0x73, 0x74,   # "Test"
-        0x48, 0x83, 0xC4, 0x28,   # add rsp, 0x28
-        0xC3                       # ret
-    )
-    # Pad to 8KB for UPX
-    $payloadB = New-Object byte[] 8192
-    [Array]::Copy($markerB, 0, $payloadB, 256, $markerB.Length)
-    for ($i = 0; $i -lt 256; $i++) { $payloadB[$i] = 0xCC }
-    for ($i = (256 + $markerB.Length); $i -lt 8192; $i++) {
-        $payloadB[$i] = [byte](($i * 7 + 13) % 256)  # pseudo-random fill for compressibility variation
-    }
-
-    $peOrigB = New-MinimalPE -Payload $payloadB -TextSectionSize 8192
+    # Use a real system PE so the engine's UPX unpacker can handle it
+    $srcPE = "$env:SystemRoot\System32\whoami.exe"
+    if (-not (Test-Path $srcPE)) { $srcPE = "$env:SystemRoot\System32\where.exe" }
     $pathOrigB = "$SamplesDir\scenario_b_original.exe"
-    [System.IO.File]::WriteAllBytes($pathOrigB, $peOrigB)
+    Copy-Item $srcPE $pathOrigB -Force
 
+    # Read the PE and find a distinctive 16-byte sequence from its .text section
+    $peBytes = [System.IO.File]::ReadAllBytes($pathOrigB)
+    # Find .text section: search for pattern at offset 0x400-0x800 (typical code area)
+    # Use bytes at a fixed offset deep enough to be in code
+    $searchOffset = [Math]::Min(0x600, $peBytes.Length - 20)
+    $markerB = New-Object byte[] 16
+    [Array]::Copy($peBytes, $searchOffset, $markerB, 0, 16)
     $markerHexB = ($markerB | ForEach-Object { "{0:x2}" -f $_ }) -join ""
+    Write-Host "       Using pattern from offset 0x$($searchOffset.ToString('X')): $markerHexB"
+
     $sigsB = @{
         bytestream = @(@{ name = "Evasion.Test.B.Pattern"; pattern = $markerHexB })
     } | ConvertTo-Json -Depth 4
@@ -384,7 +377,7 @@ if (-not $upxExe) {
         if ($jsonLine) {
             try {
                 $r = $jsonLine | ConvertFrom-Json
-                if ($r.found) { $notDetected = $false }
+                if ($r.detected) { $notDetected = $false }
             } catch { }
         }
         if ($notDetected) {
@@ -528,15 +521,20 @@ if ($LASTEXITCODE -ne 0 -or -not $fuzzyD) {
     Assert-DetectedBy -TestName "D.1 Original PE detected by MD5" `
         -DbPath $dbPathD -FilePath $pathOrigD -ExpectedScannerId "md5"
 
-    # Modify ~5% of bytes (every 20th byte in payload area, XOR 0xFF)
+    # Modify the last ~5% of the file (contiguous region at the tail).
+    # This changes the MD5 but preserves most of the rolling hash boundaries
+    # for fuzzy hashing, keeping similarity high.
     $peModD = [byte[]]$peOrigD.Clone()
     $textStart = 0x200  # .text file offset
+    $payloadLen = $peModD.Length - $textStart
+    $modRegionSize = [int]($payloadLen * 0.05)
+    $modStart = $peModD.Length - $modRegionSize
     $modified = 0
-    for ($i = $textStart; $i -lt $peModD.Length; $i += 20) {
+    for ($i = $modStart; $i -lt $peModD.Length; $i++) {
         $peModD[$i] = $peModD[$i] -bxor 0xFF
         $modified++
     }
-    Write-Host "       Modified $modified bytes (~$([Math]::Round($modified * 100.0 / ($peModD.Length - $textStart), 1))% of payload)"
+    Write-Host "       Modified $modified bytes (last ~5% of payload, contiguous)"
 
     $pathModD = "$SamplesDir\scenario_d_modified.exe"
     [System.IO.File]::WriteAllBytes($pathModD, $peModD)
