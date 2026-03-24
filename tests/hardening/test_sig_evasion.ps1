@@ -336,6 +336,25 @@ if (-not $upxExe) {
     $pathOrigB = "$SamplesDir\scenario_b_original.exe"
     Copy-Item $srcPE $pathOrigB -Force
 
+    # Invalidate the Authenticode signature so the engine doesn't whitelist it.
+    # Zero out the PE checksum field (offset 0x58 from PE signature) and
+    # the security directory entry to strip the digital signature.
+    $peBytes = [System.IO.File]::ReadAllBytes($pathOrigB)
+    $peOffset = [BitConverter]::ToInt32($peBytes, 0x3C)  # e_lfanew
+    # Zero the checksum (PE optional header offset + 0x40)
+    $checksumOffset = $peOffset + 4 + 20 + 0x40  # PE sig(4) + COFF(20) + OptHdr.CheckSum
+    $peBytes[$checksumOffset]     = 0
+    $peBytes[$checksumOffset + 1] = 0
+    $peBytes[$checksumOffset + 2] = 0
+    $peBytes[$checksumOffset + 3] = 0
+    # Zero the security directory (data directory index 4, each entry = 8 bytes)
+    # OptionalHeader starts at peOffset+4+20, data dirs start at +112 (PE32+) or +96 (PE32)
+    $magic = [BitConverter]::ToUInt16($peBytes, $peOffset + 4 + 20)
+    $ddOffset = if ($magic -eq 0x020B) { $peOffset + 4 + 20 + 112 } else { $peOffset + 4 + 20 + 96 }
+    $secDirOffset = $ddOffset + (4 * 8)  # index 4, each entry 8 bytes
+    for ($z = 0; $z -lt 8; $z++) { $peBytes[$secDirOffset + $z] = 0 }
+    [System.IO.File]::WriteAllBytes($pathOrigB, $peBytes)
+
     # Read the PE and find a distinctive 16-byte sequence from deep in .text
     $peBytes = [System.IO.File]::ReadAllBytes($pathOrigB)
     # Pick bytes from well inside the code section (offset 0x1000+ for typical PE)
