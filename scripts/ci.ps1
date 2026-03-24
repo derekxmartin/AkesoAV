@@ -118,8 +118,11 @@ try {
     # Also exclude ParserResilience/HeuristicEvasion (need generated samples;
     # validated separately in Step 9 after sample generation)
     $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*"
+    # Write filter to flagfile to avoid PowerShell glob/quoting issues with * and :
+    $flagFile = "$env:TEMP\gtest_flags.txt"
+    Set-Content -Path $flagFile -Value "--gtest_filter=-$excludeFilter" -NoNewline
     $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $proc = Start-Process -FilePath $TestExe -ArgumentList "--gtest_filter=-$excludeFilter" `
+    $proc = Start-Process -FilePath $TestExe -ArgumentList "--gtest_flagfile=$flagFile" `
         -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\gtest_out.txt" `
         -RedirectStandardError "$env:TEMP\gtest_err.txt"
     $finished = $proc.WaitForExit(300000)  # 5-minute timeout
