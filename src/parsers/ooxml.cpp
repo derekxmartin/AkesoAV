@@ -182,8 +182,8 @@ bool akav_ooxml_parse(const uint8_t* data, size_t data_len,
         return false;
     }
 
-    /* Parse vbaProject.bin through OLE2 if present */
-    if (ctx.vba_project_data && ctx.vba_project_len > 0) {
+    /* Parse vbaProject.bin through OLE2 if present (min OLE2 header = 512 bytes) */
+    if (ctx.vba_project_data && ctx.vba_project_len >= 512) {
         akav_ole2_t ole2;
         memset(&ole2, 0, sizeof(ole2));
 

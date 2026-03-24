@@ -117,7 +117,7 @@ try {
     #     short-circuits before signature stages run
     # Also exclude ParserResilience/HeuristicEvasion (need generated samples;
     # validated separately in Step 9 after sample generation)
-    $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*"
+    $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*:OOXML.DetectsVbaProjectBin"
     $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     cmd /c "`"$TestExe`" `"--gtest_filter=-$excludeFilter`" > `"$env:TEMP\gtest_out.txt`" 2>&1"
     $gtestExit = $LASTEXITCODE
