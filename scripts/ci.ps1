@@ -62,8 +62,10 @@ if (Test-Path $TestDataScript) {
 Write-Step "CMake configure (Release)"
 Push-Location $ProjectRoot
 try {
-    $cmakeOut = cmake -G "Visual Studio 17 2022" -B $BuildDir 2>&1
-    $cmakeOut | ForEach-Object { Write-Host $_ }
+    $oldPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    cmake -G "Visual Studio 17 2022" -B $BuildDir 2>&1 | ForEach-Object { "$_" } | Out-Host
+    $ErrorActionPreference = $oldPref
     if ($LASTEXITCODE -ne 0) { throw "CMake configure failed (exit $LASTEXITCODE)" }
     Write-Pass "CMake configure succeeded"
 } catch {
@@ -78,8 +80,9 @@ try {
 
 Write-Step "Build (Release)"
 try {
-    $buildOut = cmake --build $BuildDir --config Release 2>&1
-    $buildOut | ForEach-Object { Write-Host $_ }
+    $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    cmake --build $BuildDir --config Release 2>&1 | ForEach-Object { "$_" } | Out-Host
+    $ErrorActionPreference = $oldPref
     if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)" }
 
     # Verify key outputs exist
