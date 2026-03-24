@@ -346,16 +346,16 @@ try {
     Start-Sleep -Seconds 1  # allow SIEM flush
 } catch { }
 
-# Read SIEM log with shared access (file is held open by service)
+# Read SIEM log — service holds it open exclusively, so copy first
 $siemLines = @()
 if (Test-Path $siemLog) {
     try {
-        $fs = [System.IO.File]::Open($siemLog, [System.IO.FileMode]::Open,
-            [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-        $rd = New-Object System.IO.StreamReader($fs)
-        $content = $rd.ReadToEnd()
-        $rd.Close(); $fs.Close()
-        $siemLines = $content -split "`n" | Where-Object { $_.Trim().Length -gt 0 }
+        $siemCopy = "$WorkDir\siem_copy.jsonl"
+        cmd /c copy "$siemLog" "$siemCopy" /Y 2>&1 | Out-Null
+        if (Test-Path $siemCopy) {
+            $siemLines = Get-Content $siemCopy -ErrorAction SilentlyContinue |
+                Where-Object { $_.Trim().Length -gt 0 }
+        }
     } catch { }
 }
 
