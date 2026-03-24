@@ -165,7 +165,47 @@ if (Test-Path $PyakavTests) {
     Write-Host "  SKIP: test_pyakav.py not found" -ForegroundColor Yellow
 }
 
-# -- Step 8: MSVC /analyze -----------------------------------------------------
+# -- Step 8: Generate hardening test samples ------------------------------------
+
+Write-Step "Generate hardening test samples"
+$HardeningTestData = Join-Path $ProjectRoot "tests\hardening\testdata"
+try {
+    # Parser resilience samples
+    $CrashPeScript = Join-Path $ProjectRoot "tests\hardening\crafted_crash_pe.py"
+    if (Test-Path $CrashPeScript) {
+        python $CrashPeScript $HardeningTestData 2>&1 | Out-Host
+    }
+    # Heuristic boundary PEs
+    $HeurPeScript = Join-Path $ProjectRoot "tests\hardening\crafted_heuristic_pes.py"
+    if (Test-Path $HeurPeScript) {
+        python $HeurPeScript $HardeningTestData 2>&1 | Out-Host
+    }
+    Write-Pass "Hardening test samples generated"
+} catch {
+    Write-Fail "Sample generation: $_"
+}
+
+# -- Step 9: Hardening GTests (P11) -------------------------------------------
+
+Write-Step "Hardening GTests (ParserResilience, HeuristicEvasion, EmuEvasion)"
+$TestExe = Join-Path $BuildDir "Release\akesoav_tests.exe"
+try {
+    $hardenFilter = "ParserResilience.*:HeuristicEvasion.*:EmuEvasion.*"
+    $hardenOutput = & $TestExe --gtest_filter=$hardenFilter 2>&1
+    $hardenOutput | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Hardening GTests failed" }
+
+    $passLine = $hardenOutput | Select-String "PASSED"
+    if ($passLine) {
+        Write-Pass $passLine[-1].Line.Trim()
+    } else {
+        Write-Pass "Hardening GTests completed"
+    }
+} catch {
+    Write-Fail "Hardening GTests: $_"
+}
+
+# -- Step 10: MSVC /analyze ----------------------------------------------------
 
 if (-not $SkipAnalyze) {
     Write-Step "MSVC /analyze (static analysis)"
@@ -201,7 +241,7 @@ if (-not $SkipAnalyze) {
     Write-Host "  Skipped via -SkipAnalyze flag" -ForegroundColor Yellow
 }
 
-# -- Step 9: CLI smoke test ----------------------------------------------------
+# -- Step 11: CLI smoke test ---------------------------------------------------
 
 Write-Step "CLI smoke test"
 $Akavscan = Join-Path $BuildDir "Release\akavscan.exe"
