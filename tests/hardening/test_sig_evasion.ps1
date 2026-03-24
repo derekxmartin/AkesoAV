@@ -37,10 +37,10 @@ $script:Failed     = 0
 # ── Helpers ────────────────────────────────────────────────────────────
 
 function Assert-DetectedBy {
-    param([string]$TestName, [string]$DbPath, [string]$FilePath, [string]$ExpectedScannerId)
+    param([string]$TestName, [string]$DbPath, [string]$FilePath, [string]$ExpectedScannerId, [string[]]$ExtraArgs = @())
     $script:TotalTests++
 
-    $jsonOut = & $AkavScan --db $DbPath -j $FilePath 2>&1
+    $jsonOut = & $AkavScan --db $DbPath -j @ExtraArgs $FilePath 2>&1
     $exitCode = $LASTEXITCODE
 
     # Parse JSON from output (may have non-JSON lines mixed in)
@@ -335,13 +335,30 @@ if (-not $upxExe) {
     $pathOrigB = "$SamplesDir\scenario_b_original.exe"
     Copy-Item $srcPE $pathOrigB -Force
 
-    # Read the PE and find a distinctive 16-byte sequence from its .text section
+    # Read the PE and find a distinctive 16-byte sequence from deep in .text
     $peBytes = [System.IO.File]::ReadAllBytes($pathOrigB)
-    # Find .text section: search for pattern at offset 0x400-0x800 (typical code area)
-    # Use bytes at a fixed offset deep enough to be in code
-    $searchOffset = [Math]::Min(0x600, $peBytes.Length - 20)
-    $markerB = New-Object byte[] 16
-    [Array]::Copy($peBytes, $searchOffset, $markerB, 0, 16)
+    # Pick bytes from well inside the code section (offset 0x1000+ for typical PE)
+    # Scan for a 16-byte run with no null bytes (distinctive code, not padding)
+    $markerB = $null
+    $searchOffset = 0
+    for ($off = 0x1000; $off -lt ($peBytes.Length - 20); $off += 16) {
+        $candidate = New-Object byte[] 16
+        [Array]::Copy($peBytes, $off, $candidate, 0, 16)
+        # Skip runs with null bytes or all-same bytes
+        $hasNull = $false; $allSame = $true
+        for ($j = 0; $j -lt 16; $j++) {
+            if ($candidate[$j] -eq 0) { $hasNull = $true; break }
+            if ($candidate[$j] -ne $candidate[0]) { $allSame = $false }
+        }
+        if (-not $hasNull -and -not $allSame) {
+            $markerB = $candidate
+            $searchOffset = $off
+            break
+        }
+    }
+    if (-not $markerB) {
+        Write-Host "[SKIP] Scenario B - no distinctive byte pattern found in PE" -ForegroundColor DarkYellow
+    } else {
     $markerHexB = ($markerB | ForEach-Object { "{0:x2}" -f $_ }) -join ""
     Write-Host "       Using pattern from offset 0x$($searchOffset.ToString('X')): $markerHexB"
 
@@ -354,9 +371,10 @@ if (-not $upxExe) {
     $dbPathB = "$SamplesDir\evasion_b.akavdb"
     Compile-AkavDb -SigsJson $sigsPathB -OutputPath $dbPathB
 
-    # Test 3: Original detected by AC
+    # Test 3: Original detected by AC (disable heuristics to isolate signature test)
     Assert-DetectedBy -TestName "B.1 Original PE detected by Aho-Corasick" `
-        -DbPath $dbPathB -FilePath $pathOrigB -ExpectedScannerId "aho_corasick"
+        -DbPath $dbPathB -FilePath $pathOrigB -ExpectedScannerId "aho_corasick" `
+        -ExtraArgs @("--no-heuristics")
 
     # Pack with UPX
     $pathPackedB = "$SamplesDir\scenario_b_packed.exe"
@@ -367,11 +385,12 @@ if (-not $upxExe) {
     } else {
         # Test 4: Packed PE - UPX unpack + rescan catches it
         Assert-DetectedBy -TestName "B.2 Packed PE detected via UPX unpack" `
-            -DbPath $dbPathB -FilePath $pathPackedB -ExpectedScannerId "upx:*"
+            -DbPath $dbPathB -FilePath $pathPackedB -ExpectedScannerId "upx:*" `
+            -ExtraArgs @("--no-heuristics")
 
         # Test 5: Packed PE without unpacking - should NOT detect
         $script:TotalTests++
-        $jsonOut = & $AkavScan --db $dbPathB --no-packed -j $pathPackedB 2>&1
+        $jsonOut = & $AkavScan --db $dbPathB --no-packed --no-heuristics -j $pathPackedB 2>&1
         $jsonLine = ($jsonOut | Where-Object { $_ -match '^\s*\{' }) -join "`n"
         $notDetected = $true
         if ($jsonLine) {
@@ -391,6 +410,7 @@ if (-not $upxExe) {
         Write-Host "[BYPASSED] aho_corasick (pattern hidden by UPX compression)" -ForegroundColor DarkYellow
         Write-Host "[CAUGHT]   upx:aho_corasick (unpacker reveals original content)" -ForegroundColor DarkGreen
     }
+    } # end markerB found
     Write-Host ""
 }
 
