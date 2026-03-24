@@ -66,6 +66,7 @@ set(AKAV_ENGINE_SOURCES
     src/parsers/elf.cpp
     src/parsers/pdf.cpp
     src/parsers/ole2.cpp
+    src/parsers/ooxml.cpp
     src/signatures/bloom.cpp
     src/signatures/hash_matcher.cpp
     src/signatures/crc_matcher.cpp
@@ -230,6 +231,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_self_protect.cpp
         tests/unit/test_update_client.cpp
         tests/unit/test_watchdog.cpp
+        tests/unit/test_ooxml.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE

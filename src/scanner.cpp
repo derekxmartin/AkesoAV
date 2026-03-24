@@ -262,11 +262,29 @@ static bool ac_match_callback(const akav_ac_match_t* match, void* user_data)
     return false; /* stop searching — short circuit */
 }
 
+/* EICAR test string — must be detected without signatures per spec */
+static const char EICAR_PREFIX[] = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR";
+static const size_t EICAR_LEN = 68;
+
 void akav_scanner_scan_buffer(const akav_scanner_t* scanner,
                                const uint8_t* data, size_t data_len,
                                akav_scan_result_t* result)
 {
     if (!scanner || !result) return;
+
+    /* ── Stage 0: Built-in EICAR detection ───────────────────────── */
+    if (data && data_len >= EICAR_LEN && data_len <= 128) {
+        if (memcmp(data, EICAR_PREFIX, sizeof(EICAR_PREFIX) - 1) == 0) {
+            result->found = 1;
+            strncpy_s(result->malware_name, sizeof(result->malware_name),
+                      "EICAR-Test-File", _TRUNCATE);
+            strncpy_s(result->signature_id, sizeof(result->signature_id),
+                      "eicar-builtin", _TRUNCATE);
+            strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                      "builtin", _TRUNCATE);
+            return;
+        }
+    }
 
     /* ── Stage 1: Bloom filter pre-check ─────────────────────────── */
     /* The bloom filter is a pre-filter for hash lookups. If the file's

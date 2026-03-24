@@ -126,8 +126,23 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
     const char* ftype_str = akav_file_type_name(ftype);
     strncpy_s(result->file_type, sizeof(result->file_type), ftype_str, _TRUNCATE);
 
+    /* ── Built-in EICAR detection (no signatures required) ────────── */
+    {
+        static const char EICAR_PFX[] = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR";
+        if (buf && len >= 68 && len <= 128 &&
+            memcmp(buf, EICAR_PFX, sizeof(EICAR_PFX) - 1) == 0) {
+            result->found = 1;
+            strncpy_s(result->malware_name, sizeof(result->malware_name),
+                      "EICAR-Test-File", _TRUNCATE);
+            strncpy_s(result->signature_id, sizeof(result->signature_id),
+                      "eicar-builtin", _TRUNCATE);
+            strncpy_s(result->scanner_id, sizeof(result->scanner_id),
+                      "builtin", _TRUNCATE);
+        }
+    }
+
     /* Run signature scan pipeline (Bloom → MD5 → SHA256 → CRC32 → Fuzzy → Aho-Corasick) */
-    if (scanner_loaded_)
+    if (!result->found && scanner_loaded_)
     {
         akav_scanner_scan_buffer(&scanner_, buf, len, result);
     }
