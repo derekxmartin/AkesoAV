@@ -137,6 +137,9 @@ target_link_libraries(create_test_db PRIVATE akesoav_core)
 add_executable(update_test tools/update_test.cpp)
 target_link_libraries(update_test PRIVATE akesoav_core)
 
+add_executable(sig_helper tools/sig_helper.cpp)
+target_link_libraries(sig_helper PRIVATE akesoav_core)
+
 # ── akesoav-service.exe (Windows service + named pipe) ──
 add_executable(akesoav-service src/service/akesoav_service.cpp)
 target_link_libraries(akesoav-service PRIVATE akesoav_core)
