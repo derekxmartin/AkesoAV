@@ -90,9 +90,12 @@ def run_server(scenario, port=8443):
         cwd=PROJECT_ROOT
     )
     # Wait for server to be ready (port accepting connections)
+    print(f"       Starting server on port {port} ({scenario})...", flush=True)
     if not wait_for_port(port, timeout=15):
+        print(f"       Server failed to start on port {port}", flush=True)
         proc.kill()
         return None, None
+    print(f"       Server ready on port {port}", flush=True)
 
     # Give server a moment to write pubkey file
     time.sleep(1)
@@ -112,6 +115,7 @@ def run_server(scenario, port=8443):
 
 def run_client(args, timeout=30):
     """Run update_test.exe with given args. Returns (exit_code, stdout)."""
+    print(f"       Running client...", flush=True)
     cmd = [UPDATE_TEST] + args
     try:
         result = subprocess.run(
@@ -124,13 +128,14 @@ def run_client(args, timeout=30):
 
 
 def kill_server(proc):
-    """Kill the test server process."""
+    """Kill the test server process and wait for port release."""
     if proc and proc.poll() is None:
         proc.kill()
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             pass
+    time.sleep(1)  # Allow OS to release the port
 
 
 # ══════════════════════════════════════════════════════════════════════
