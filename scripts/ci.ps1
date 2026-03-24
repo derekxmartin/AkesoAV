@@ -118,13 +118,22 @@ try {
     # Also exclude ParserResilience/HeuristicEvasion (need generated samples;
     # validated separately in Step 9 after sample generation)
     $excludeFilter = 'QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*:OOXML.DetectsVbaProjectBin'
+    $flagFile = Join-Path $env:TEMP "gtest_flags_$PID.txt"
     $outFile = Join-Path $env:TEMP "gtest_out_$PID.txt"
+    [System.IO.File]::WriteAllText($flagFile, "--gtest_filter=-$excludeFilter")
     $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    & $TestExe "--gtest_filter=-$excludeFilter" 2>&1 | Out-File -FilePath $outFile -Encoding utf8
-    $gtestExit = $LASTEXITCODE
+    $proc = Start-Process -FilePath $TestExe -ArgumentList "--gtest_flagfile=`"$flagFile`"" `
+        -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError "$outFile.err"
+    $finished = $proc.WaitForExit(300000)
+    if (-not $finished) { $proc.Kill(); throw "GTest timed out after 5 minutes" }
+    $proc.WaitForExit()
+    $gtestExit = $proc.ExitCode
     $gtestOutput = Get-Content $outFile -ErrorAction SilentlyContinue
     $ErrorActionPreference = $oldPref
     $gtestOutput | ForEach-Object { "$_" } | Out-Host
+    # Check for PASSED line in output as fallback if ExitCode is null
+    $passLine = ($gtestOutput | Select-String '\[  PASSED  \]') | Select-Object -Last 1
+    if ($null -eq $gtestExit -and $passLine) { $gtestExit = 0 }
     if ($gtestExit -ne 0) { throw "GTest reported failures (exit $gtestExit)" }
 
     $passLine = ($gtestOutput | Select-String "PASSED") | Select-Object -Last 1
