@@ -118,20 +118,9 @@ try {
     # Also exclude ParserResilience/HeuristicEvasion (need generated samples;
     # validated separately in Step 9 after sample generation)
     $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*"
-    # Write filter to flagfile to avoid PowerShell glob/quoting issues with * and :
-    $flagFile = "$env:TEMP\gtest_flags.txt"
-    Set-Content -Path $flagFile -Value "--gtest_filter=-$excludeFilter" -NoNewline
     $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $proc = Start-Process -FilePath $TestExe -ArgumentList "--gtest_flagfile=$flagFile" `
-        -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\gtest_out.txt" `
-        -RedirectStandardError "$env:TEMP\gtest_err.txt"
-    $finished = $proc.WaitForExit(300000)  # 5-minute timeout
-    if (-not $finished) {
-        $proc.Kill()
-        throw "GTest timed out after 5 minutes"
-    }
-    $proc.WaitForExit()  # ensure ExitCode is populated
-    $gtestExit = $proc.ExitCode
+    cmd /c "`"$TestExe`" `"--gtest_filter=-$excludeFilter`" > `"$env:TEMP\gtest_out.txt`" 2>&1"
+    $gtestExit = $LASTEXITCODE
     $gtestOutput = Get-Content "$env:TEMP\gtest_out.txt" -ErrorAction SilentlyContinue
     $ErrorActionPreference = $oldPref
     $gtestOutput | ForEach-Object { "$_" } | Out-Host
