@@ -239,6 +239,7 @@ if(AKAV_BUILD_TESTS AND NOT AKAV_BUILD_FUZZ)
         tests/unit/test_watchdog.cpp
         tests/unit/test_ooxml.cpp
         tests/hardening/test_parser_resilience.cpp
+        tests/hardening/test_heuristic_evasion.cpp
     )
 
     target_link_libraries(akesoav_tests PRIVATE
