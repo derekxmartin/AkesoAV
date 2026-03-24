@@ -86,8 +86,8 @@ def run_server(scenario, port=8443):
     """Start the test update server and return (process, pubkey_path)."""
     cmd = [sys.executable, SERVER_SCRIPT, "--scenario", scenario, "--port", str(port)]
     proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        cwd=PROJECT_ROOT, text=True
+        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=PROJECT_ROOT
     )
     # Wait for server to be ready (port accepting connections)
     if not wait_for_port(port, timeout=15):
