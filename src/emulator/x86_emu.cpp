@@ -242,6 +242,13 @@ static uint32_t compute_ea(const akav_x86_emu_t* emu, const akav_x86_operand_t* 
         addr += emu->regs.reg[op->index_reg] * op->scale;
     if (op->has_disp)
         addr += (uint32_t)op->disp;
+
+    /* FS segment override: translate to TEB base address.
+     * seg==4 is FS (set by decoder from 0x64 prefix).
+     * This enables fs:[0x30] → PEB pointer, fs:[0x00] → SEH chain, etc. */
+    if (op->seg == 4)
+        addr += 0x7FFD0000u; /* AKAV_TEB_BASE */
+
     return addr;
 }
 
@@ -315,8 +322,50 @@ static bool emu_pop32(akav_x86_emu_t* emu, uint32_t* val)
 
 /* ── Fault helper ─────────────────────────────────────────────── */
 
+/* Try to dispatch a fault via the SEH chain in the TEB.
+ * Returns true if an SEH handler was found and EIP was redirected. */
+static bool try_seh_dispatch(akav_x86_emu_t* emu, uint32_t exception_code)
+{
+    /* Read SEH chain head from TEB[0] (0x7FFD0000) */
+    uint32_t seh_head = 0;
+    if (!akav_x86_mem_read32(&emu->mem, 0x7FFD0000u, &seh_head))
+        return false;
+
+    /* 0xFFFFFFFF = end of chain (no handler) */
+    if (seh_head == 0xFFFFFFFF || seh_head == 0)
+        return false;
+
+    /* Read handler address at [seh_head + 4] */
+    uint32_t handler = 0;
+    if (!akav_x86_mem_read32(&emu->mem, seh_head + 4, &handler))
+        return false;
+    if (handler == 0 || handler == 0xFFFFFFFF)
+        return false;
+
+    /* Push simplified exception record onto stack:
+     *   [ESP-4]  = exception code
+     *   [ESP-8]  = fault EIP
+     *   [ESP-12] = SEH frame pointer */
+    uint32_t esp = emu->regs.reg[4]; /* ESP */
+    esp -= 4; akav_x86_mem_write32(&emu->mem, esp, exception_code);
+    esp -= 4; akav_x86_mem_write32(&emu->mem, esp, emu->regs.eip);
+    esp -= 4; akav_x86_mem_write32(&emu->mem, esp, seh_head);
+    emu->regs.reg[4] = esp;
+
+    /* Transfer control to handler */
+    emu->regs.eip = handler;
+    emu->halted = false; /* Clear any halt state */
+    return true;
+}
+
 static int emu_fault(akav_x86_emu_t* emu, uint8_t reason, const char* msg)
 {
+    /* For faults (not halts), try SEH dispatch first */
+    if (reason == AKAV_EMU_HALT_FAULT) {
+        if (try_seh_dispatch(emu, 0xC0000094u /* STATUS_INTEGER_DIVIDE_BY_ZERO */))
+            return AKAV_EMU_OK; /* Continue execution at handler */
+    }
+
     emu->halted = true;
     emu->halt_reason = reason;
     snprintf(emu->error, sizeof(emu->error), "%s", msg);
@@ -1105,8 +1154,8 @@ static int execute(akav_x86_emu_t* emu, const akav_x86_insn_t* insn)
         if (r->reg[0] == 0) {
             r->reg[0] = 1;           /* max leaf */
             r->reg[3] = 0x756E6547;  /* EBX: "Genu" */
-            r->reg[2] = 0x6C65746E;  /* EDX: "ineI" */
-            r->reg[1] = 0x49656E69;  /* ECX: "ntel" */
+            r->reg[2] = 0x49656E69;  /* EDX: "ineI" */
+            r->reg[1] = 0x6C65746E;  /* ECX: "ntel" */
         } else {
             r->reg[0] = 0x00000F00;  /* family 15 */
             r->reg[3] = 0;
