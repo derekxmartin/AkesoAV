@@ -407,7 +407,7 @@ if (-not $upxExe) {
     # Test 3: Original detected by AC (disable heuristics to isolate signature test)
     Assert-DetectedBy -TestName "B.1 Original PE detected by Aho-Corasick" `
         -DbPath $dbPathB -FilePath $pathOrigB -ExpectedScannerId "aho_corasick" `
-        -ExtraArgs @("--no-heuristics")
+        -ExtraArgs @("--no-heuristics", "--no-whitelist")
 
     # Pack with UPX
     $pathPackedB = "$SamplesDir\scenario_b_packed.exe"
@@ -419,11 +419,11 @@ if (-not $upxExe) {
         # Test 4: Packed PE - UPX unpack + rescan catches it
         Assert-DetectedBy -TestName "B.2 Packed PE detected via UPX unpack" `
             -DbPath $dbPathB -FilePath $pathPackedB -ExpectedScannerId "upx:*" `
-            -ExtraArgs @("--no-heuristics")
+            -ExtraArgs @("--no-heuristics", "--no-whitelist")
 
         # Test 5: Packed PE without unpacking - should NOT detect
         $script:TotalTests++
-        $jsonOut = & $AkavScan --db $dbPathB --no-packed --no-heuristics -j $pathPackedB 2>&1
+        $jsonOut = & $AkavScan --db $dbPathB --no-packed --no-heuristics --no-whitelist -j $pathPackedB 2>&1
         $jsonLine = ($jsonOut | Where-Object { $_ -match '^\s*\{' }) -join "`n"
         $notDetected = $true
         if ($jsonLine) {

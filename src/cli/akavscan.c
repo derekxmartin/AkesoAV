@@ -27,6 +27,7 @@ typedef struct
     int scan_archives;  /* --archives (default on) */
     int scan_packed;    /* --packed (default on) */
     int use_heuristics; /* --heuristics (default on) */
+    int use_whitelist;  /* --whitelist (default on) */
     int heuristic_level;/* --heur-level 0-3 */
     int64_t max_filesize;/* --max-size */
     int timeout_ms;     /* --timeout */
@@ -52,6 +53,7 @@ static void print_usage(void)
         "  --no-archives       Disable archive scanning\n"
         "  --no-packed         Disable unpacking\n"
         "  --no-heuristics     Disable heuristic engine\n"
+        "  --no-whitelist      Disable signer/hash whitelist\n"
         "  --heur-level N      Heuristic level 0-3 (default 2=medium)\n"
         "  --max-size N        Max file size in bytes (0=no limit)\n"
         "  --timeout N         Per-file timeout in ms (default 30000)\n"
@@ -66,6 +68,7 @@ static int parse_args(int argc, char* argv[], cli_options_t* opts)
     opts->scan_archives = 1;
     opts->scan_packed = 1;
     opts->use_heuristics = 1;
+    opts->use_whitelist = 1;
     opts->heuristic_level = 2;
     opts->max_filesize = 0;
     opts->timeout_ms = 30000;
@@ -90,6 +93,8 @@ static int parse_args(int argc, char* argv[], cli_options_t* opts)
             opts->scan_packed = 0;
         else if (strcmp(argv[i], "--no-heuristics") == 0)
             opts->use_heuristics = 0;
+        else if (strcmp(argv[i], "--no-whitelist") == 0)
+            opts->use_whitelist = 0;
         else if (strcmp(argv[i], "--heur-level") == 0 && i + 1 < argc)
             opts->heuristic_level = atoi(argv[++i]);
         else if (strcmp(argv[i], "--max-size") == 0 && i + 1 < argc)
@@ -352,6 +357,7 @@ int main(int argc, char* argv[])
     scan_opts.scan_archives = opts.scan_archives;
     scan_opts.scan_packed = opts.scan_packed;
     scan_opts.use_heuristics = opts.use_heuristics;
+    scan_opts.use_whitelist = opts.use_whitelist;
     scan_opts.heuristic_level = (akav_heur_level_t)opts.heuristic_level;
     scan_opts.max_filesize = opts.max_filesize;
     scan_opts.timeout_ms = opts.timeout_ms;
