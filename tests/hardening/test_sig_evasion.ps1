@@ -49,7 +49,7 @@ function Assert-DetectedBy {
         Write-Host "[FAIL] $TestName - no JSON output (exit=$exitCode)" -ForegroundColor Red
         Write-Host "       Raw output: $jsonOut"
         $script:Failed++
-        return $false
+        return
     }
 
     try {
@@ -58,13 +58,13 @@ function Assert-DetectedBy {
         Write-Host "[FAIL] $TestName - JSON parse error" -ForegroundColor Red
         Write-Host "       Raw: $jsonLine"
         $script:Failed++
-        return $false
+        return
     }
 
     if (-not $result.detected) {
         Write-Host "[FAIL] $TestName - NOT detected (expected: $ExpectedScannerId)" -ForegroundColor Red
         $script:Failed++
-        return $false
+        return
     }
 
     $actual = $result.scanner_id
@@ -74,17 +74,17 @@ function Assert-DetectedBy {
         if ($actual.StartsWith($prefix)) {
             Write-Host "[PASS] $TestName - detected by: $actual" -ForegroundColor Green
             $script:Passed++
-            return $true
+            return
         }
     } elseif ($actual -eq $ExpectedScannerId) {
         Write-Host "[PASS] $TestName - detected by: $actual" -ForegroundColor Green
         $script:Passed++
-        return $true
+        return
     }
 
     Write-Host "[FAIL] $TestName - detected by '$actual', expected '$ExpectedScannerId'" -ForegroundColor Red
     $script:Failed++
-    return $false
+    return
 }
 
 function Assert-NotDetected {
@@ -100,14 +100,14 @@ function Assert-NotDetected {
             if ($result.detected) {
                 Write-Host "[FAIL] $TestName - unexpectedly detected by: $($result.scanner_id)" -ForegroundColor Red
                 $script:Failed++
-                return $false
+                return
             }
         } catch { }
     }
 
     Write-Host "[PASS] $TestName - not detected (as expected)" -ForegroundColor Green
     $script:Passed++
-    return $true
+    return
 }
 
 function New-MinimalPE {
@@ -320,6 +320,9 @@ $upxExe = Get-Command upx -ErrorAction SilentlyContinue | Select-Object -ExpandP
 if (-not $upxExe) {
     $upxExe = Get-Command upx.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 }
+# Also check build directory and project root
+if (-not $upxExe -and (Test-Path "$BuildDir\upx.exe")) { $upxExe = "$BuildDir\upx.exe" }
+if (-not $upxExe -and (Test-Path "$ProjectRoot\upx.exe")) { $upxExe = "$ProjectRoot\upx.exe" }
 
 if (-not $upxExe) {
     Write-Host "[SKIP] Scenario B - upx.exe not found in PATH" -ForegroundColor DarkYellow
@@ -482,17 +485,23 @@ Write-Host ""
 # ======================================================================
 Write-Host "=== Scenario D: Fuzzy Hash Evasion (MD5 -> Fuzzy Hash) ===" -ForegroundColor Yellow
 
-# Create a larger PE (8KB payload for meaningful fuzzy hash)
-$payloadD = New-Object byte[] 8192
-# Fill with deterministic pseudo-random content
-for ($i = 0; $i -lt 8192; $i++) {
-    $payloadD[$i] = [byte](((($i * 31) + 17) -bxor ($i -shr 3)) % 256)
+# Create a larger PE (32KB payload for meaningful fuzzy hash)
+# Use SHA-256 based PRNG for high-entropy content that produces a rich fuzzy hash
+$payloadSize = 32768
+$payloadD = New-Object byte[] $payloadSize
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$seed = [System.Text.Encoding]::ASCII.GetBytes("AkesoAV_FuzzyHash_Scenario_D_Seed_v1")
+$block = $sha.ComputeHash($seed)
+$offset = 0
+while ($offset -lt $payloadSize) {
+    $copyLen = [Math]::Min(32, $payloadSize - $offset)
+    [Array]::Copy($block, 0, $payloadD, $offset, $copyLen)
+    $offset += $copyLen
+    $block = $sha.ComputeHash($block)
 }
-# Add a small distinctive header region
-$headerD = [System.Text.Encoding]::ASCII.GetBytes("AKESOFUZZTEST_SCENARIO_D_HEADER_")
-[Array]::Copy($headerD, 0, $payloadD, 0, $headerD.Length)
+$sha.Dispose()
 
-$peOrigD = New-MinimalPE -Payload $payloadD -TextSectionSize 8192
+$peOrigD = New-MinimalPE -Payload $payloadD -TextSectionSize $payloadSize
 $pathOrigD = "$SamplesDir\scenario_d_original.exe"
 [System.IO.File]::WriteAllBytes($pathOrigD, $peOrigD)
 
