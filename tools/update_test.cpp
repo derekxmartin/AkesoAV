@@ -34,6 +34,7 @@ static void usage(const char* prog)
         "  --pubkey    Path to RSA public key blob file (BCRYPT_RSAPUBLIC_BLOB)\n"
         "  --cert-fp   Server cert SHA-256 fingerprint (64 hex chars, optional)\n"
         "  --db        Path to current .akavdb (default: update_test_temp.akavdb)\n"
+        "  --current-version N  Current DB version (skip update if manifest <= N)\n"
         "  --no-verify Skip TLS certificate validation (for self-signed certs)\n"
         "\n"
         "Example with test server:\n"
@@ -64,6 +65,7 @@ int main(int argc, char* argv[])
     const char* pubkey_path = nullptr;
     const char* cert_fp_hex = nullptr;
     const char* db_path = "update_test_temp.akavdb";
+    uint32_t current_version = 0;
     bool no_verify = false;
 
     for (int i = 1; i < argc; i++) {
@@ -75,6 +77,8 @@ int main(int argc, char* argv[])
             cert_fp_hex = argv[++i];
         } else if (strcmp(argv[i], "--db") == 0 && i + 1 < argc) {
             db_path = argv[++i];
+        } else if (strcmp(argv[i], "--current-version") == 0 && i + 1 < argc) {
+            current_version = (uint32_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--no-verify") == 0) {
             no_verify = true;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -194,6 +198,15 @@ int main(int argc, char* argv[])
         }
     } else {
         printf("\n=== Step 3: Skipping manifest signature verification ===\n");
+    }
+
+    /* Step 3.5: Version comparison */
+    if (current_version > 0 && manifest.version <= current_version) {
+        printf("\n=== Version Check ===\n");
+        printf("[OK] No update needed (manifest v%u <= current v%u)\n",
+               manifest.version, current_version);
+        free(manifest_data);
+        return 0;
     }
 
     /* Step 4: Download and verify each file */
