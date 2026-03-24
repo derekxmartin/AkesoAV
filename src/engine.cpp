@@ -508,7 +508,16 @@ static bool zip_entry_callback(const char* filename, const uint8_t* data,
 
         if (err == AKAV_ERROR_BOMB) {
             ctx->bomb = true;
-            return false; /* Stop extraction */
+            /* Add warning but continue scanning remaining entries */
+            if (ctx->result->warning_count < AKAV_MAX_WARNINGS) {
+                char warn[AKAV_MAX_WARNING_LEN];
+                snprintf(warn, sizeof(warn), "Zip bomb detected in entry: %s",
+                         filename ? filename : "(unknown)");
+                strncpy_s(ctx->result->warnings[ctx->result->warning_count],
+                          AKAV_MAX_WARNING_LEN, warn, _TRUNCATE);
+                ctx->result->warning_count++;
+            }
+            return true; /* Continue to next entry */
         }
 
         if (entry_result.found) {
@@ -530,7 +539,7 @@ static bool zip_entry_callback(const char* filename, const uint8_t* data,
                 data, data_len, ctx->opts, ctx->result, depth);
             if (zip_err == AKAV_ERROR_BOMB) {
                 ctx->bomb = true;
-                return false;
+                return true; /* Skip nested bomb, continue */
             }
             if (ctx->result->found)
                 return false;
@@ -559,8 +568,17 @@ akav_error_t Engine::scan_archive_zip(const uint8_t* buf, size_t len,
 
     bool ok = akav_zip_extract(&zip_ctx, buf, len, zip_entry_callback, &scan_ctx);
 
-    if (scan_ctx.bomb || zip_ctx.bomb_detected)
-        return AKAV_ERROR_BOMB;
+    /* Log bomb warning regardless of whether malware was also found */
+    if (scan_ctx.bomb || zip_ctx.bomb_detected) {
+        if (result->warning_count < AKAV_MAX_WARNINGS) {
+            strncpy_s(result->warnings[result->warning_count],
+                      AKAV_MAX_WARNING_LEN,
+                      "Zip bomb detected in archive (entry skipped)", _TRUNCATE);
+            result->warning_count++;
+        }
+        if (!result->found)
+            return AKAV_ERROR_BOMB;
+    }
 
     if (!ok && !result->found) {
         /* Extraction failed but not due to bomb — add warning */

@@ -1,6 +1,7 @@
 # Build directories
 build/
 tests/hardening/evasion_samples/
+tests/hardening/testdata/
 build-*/
 out/
 cmake-build-*/

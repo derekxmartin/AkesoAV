@@ -169,8 +169,11 @@ bool akav_zip_extract(akav_zip_context_t* ctx,
         /* Max decompressed size (per entry) */
         if (uncomp_size > AKAV_ZIP_MAX_DECOMPRESSED) {
             ctx->bomb_detected = true;
-            zip_error(ctx, "Entry exceeds maximum decompressed size (100MB)");
-            return false;
+            /* Skip this entry, continue to next */
+            if (comp_size <= akav_reader_remaining(&r))
+                akav_reader_skip(&r, (size_t)comp_size);
+            ctx->num_entries++;
+            continue;
         }
 
         /* Compression ratio check */
@@ -178,8 +181,11 @@ bool akav_zip_extract(akav_zip_context_t* ctx,
             uint64_t ratio = (uint64_t)uncomp_size / (uint64_t)comp_size;
             if (ratio > AKAV_ZIP_MAX_RATIO) {
                 ctx->bomb_detected = true;
-                zip_error(ctx, "Decompression bomb: ratio exceeds 100:1");
-                return false;
+                /* Skip this entry, continue to next */
+                if (comp_size <= akav_reader_remaining(&r))
+                    akav_reader_skip(&r, (size_t)comp_size);
+                ctx->num_entries++;
+                continue;
             }
         }
 
@@ -188,8 +194,11 @@ bool akav_zip_extract(akav_zip_context_t* ctx,
         ctx->total_compressed += comp_size;
         if (ctx->total_uncompressed > AKAV_ZIP_MAX_DECOMPRESSED) {
             ctx->bomb_detected = true;
-            zip_error(ctx, "Cumulative decompressed size exceeds 100MB");
-            return false;
+            /* Skip this entry, continue to next */
+            if (comp_size <= akav_reader_remaining(&r))
+                akav_reader_skip(&r, (size_t)comp_size);
+            ctx->num_entries++;
+            continue;
         }
 
         /* Read compressed data */
