@@ -40,7 +40,8 @@ function Assert-DetectedBy {
     param([string]$TestName, [string]$DbPath, [string]$FilePath, [string]$ExpectedScannerId, [string[]]$ExtraArgs = @())
     $script:TotalTests++
 
-    $jsonOut = & $AkavScan --db $DbPath -j @ExtraArgs $FilePath 2>&1
+    $allArgs = @("--db", $DbPath, "-j") + $ExtraArgs + @($FilePath)
+    $jsonOut = & $AkavScan @allArgs 2>&1
     $exitCode = $LASTEXITCODE
 
     # Parse JSON from output (may have non-JSON lines mixed in)
@@ -370,6 +371,19 @@ if (-not $upxExe) {
 
     $dbPathB = "$SamplesDir\evasion_b.akavdb"
     Compile-AkavDb -SigsJson $sigsPathB -OutputPath $dbPathB
+
+    # Verify pattern actually exists in file
+    $verifyBytes = [System.IO.File]::ReadAllBytes($pathOrigB)
+    $verifySlice = New-Object byte[] 16
+    [Array]::Copy($verifyBytes, $searchOffset, $verifySlice, 0, 16)
+    $verifyHex = ($verifySlice | ForEach-Object { "{0:x2}" -f $_ }) -join ""
+    Write-Host "       Verify pattern at offset 0x$($searchOffset.ToString('X')): $verifyHex (match: $($verifyHex -eq $markerHexB))"
+
+    # Quick test: run scan with verbose to see what's loaded
+    $dbgOut = & $AkavScan --db $dbPathB -v -j --no-heuristics $pathOrigB 2>&1
+    $dbgLines = $dbgOut | Out-String
+    Write-Host "       Scan output (first 500 chars):"
+    Write-Host "       $($dbgLines.Substring(0, [Math]::Min(500, $dbgLines.Length)))"
 
     # Test 3: Original detected by AC (disable heuristics to isolate signature test)
     Assert-DetectedBy -TestName "B.1 Original PE detected by Aho-Corasick" `
