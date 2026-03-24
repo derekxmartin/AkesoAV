@@ -152,9 +152,9 @@ Nine fuzz targets cover the scan buffer, PE parser, x86 decoder, x86 emulator, Z
 | P7 | Extended file format parsers (ELF, PDF, OLE2) | Done |
 | P8 | x86 emulator + generic unpacking | Done |
 | P9 | YARA integration, graph-based signatures, ML classifier, dynamic heuristic scorer | Done |
-| P10 | Update system, self-protection, watchdog, OOXML parser, install scripts | Planned |
-| P11 | Hardening and evasion resistance | Planned |
-| P12 | Integration testing, benchmarks, documentation | Planned |
+| P10 | Update system, self-protection, watchdog, OOXML parser, install scripts | Done |
+| P11 | Hardening and evasion resistance | Done |
+| P12 | Integration testing, benchmarks, documentation | Done |
 
 See `REQUIREMENTS.md` for the full implementation roadmap (75 tasks, 13 phases).
 
@@ -190,7 +190,16 @@ To uninstall:
 .\scripts\uninstall.ps1
 ```
 
-> **Note:** The install/uninstall scripts are part of Phase 10 (P10-T5) and are not yet implemented. For now, run the engine directly from the build output directory as shown in the [Building](#building) section.
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | Component diagrams, scan pipeline, design rationale |
+| [Memory Safety](docs/memory-safety.md) | SafeReader patterns, fuzzing, /analyze, bugs caught |
+| [Specifications](docs/specifications.md) | .akavdb format, service protocol, update protocol, SIEM schema, EDR API |
+| [Benchmark](docs/benchmark_report.md) | Performance benchmark results |
 
 ---
 
