@@ -305,7 +305,7 @@ if (Test-Path $eicarFile) {
 Write-Host ""
 Write-Host "--- EDR Integration ---" -ForegroundColor Yellow
 
-$edrRunning = Get-Service -Name "AkesoEDR" -ErrorAction SilentlyContinue
+$edrRunning = Get-Service -Name "AkesoEDRAgent" -ErrorAction SilentlyContinue
 if ($edrRunning -and $edrRunning.Status -eq "Running") {
     Log-Pass "24" "EDR service running (integrated scan available)"
     Log-Pass "29" "EDR realtime (minifilter active with AV engine)"
@@ -382,7 +382,7 @@ Log-Skip "37" "Schedule cron (needs service with scheduler configured)"
 Write-Host ""
 Write-Host "--- AMSI ---" -ForegroundColor Yellow
 
-$amsiProvider = Get-Service -Name "AkesoEDR" -ErrorAction SilentlyContinue
+$amsiProvider = Get-Service -Name "AkesoEDRAgent" -ErrorAction SilentlyContinue
 if ($amsiProvider -and $amsiProvider.Status -eq "Running") {
     Log-Pass "38" "AMSI provider active (EDR service running)"
     Log-Pass "39" "AMSI benign PS (Get-Process runs without block)"
