@@ -62,8 +62,9 @@ if (Test-Path $TestDataScript) {
 Write-Step "CMake configure (Release)"
 Push-Location $ProjectRoot
 try {
-    cmake -G "Visual Studio 17 2022" -B $BuildDir 2>&1 | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
+    $cmakeOut = cmake -G "Visual Studio 17 2022" -B $BuildDir 2>&1
+    $cmakeOut | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "CMake configure failed (exit $LASTEXITCODE)" }
     Write-Pass "CMake configure succeeded"
 } catch {
     Write-Fail $_
@@ -77,8 +78,9 @@ try {
 
 Write-Step "Build (Release)"
 try {
-    cmake --build $BuildDir --config Release 2>&1 | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Build failed" }
+    $buildOut = cmake --build $BuildDir --config Release 2>&1
+    $buildOut | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)" }
 
     # Verify key outputs exist
     $Dll = Join-Path $BuildDir "Release\akesoav.dll"
