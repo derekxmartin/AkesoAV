@@ -61,7 +61,7 @@ function Assert-DetectedBy {
         return $false
     }
 
-    if (-not $result.found) {
+    if (-not $result.detected) {
         Write-Host "[FAIL] $TestName - NOT detected (expected: $ExpectedScannerId)" -ForegroundColor Red
         $script:Failed++
         return $false
@@ -97,7 +97,7 @@ function Assert-NotDetected {
     if ($jsonLine) {
         try {
             $result = $jsonLine | ConvertFrom-Json
-            if ($result.found) {
+            if ($result.detected) {
                 Write-Host "[FAIL] $TestName - unexpectedly detected by: $($result.scanner_id)" -ForegroundColor Red
                 $script:Failed++
                 return $false
