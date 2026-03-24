@@ -412,7 +412,8 @@ if (-not $upxExe) {
     # Pack with UPX
     $pathPackedB = "$SamplesDir\scenario_b_packed.exe"
     Copy-Item $pathOrigB $pathPackedB -Force
-    $upxResult = & $upxExe --best --force $pathPackedB 2>&1
+    # Force NRV2B compression (engine unpacker doesn't support LZMA)
+    $upxResult = & $upxExe --best --force --nrv2b $pathPackedB 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[SKIP] Scenario B - UPX packing failed: $upxResult" -ForegroundColor DarkYellow
     } else {
