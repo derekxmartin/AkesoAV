@@ -130,6 +130,7 @@ try {
         $proc.Kill()
         throw "GTest timed out after 5 minutes"
     }
+    $proc.WaitForExit()  # ensure ExitCode is populated
     $gtestExit = $proc.ExitCode
     $gtestOutput = Get-Content "$env:TEMP\gtest_out.txt" -ErrorAction SilentlyContinue
     $ErrorActionPreference = $oldPref
