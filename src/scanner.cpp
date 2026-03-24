@@ -607,7 +607,7 @@ int akav_scanner_run_heuristics(const akav_scanner_t* scanner,
     /* ── Apply threshold ────────────────────────────────────────── */
 
     int threshold = heuristic_threshold(level);
-    if (threshold > 0 && total_score > threshold) {
+    if (threshold > 0 && total_score >= threshold) {
         const char* category = top_category(&pe_result, &entropy_result,
                                               &import_result, &string_result);
 
