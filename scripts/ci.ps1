@@ -7,10 +7,12 @@
 #     .\scripts\ci.ps1                    # Full pipeline
 #     .\scripts\ci.ps1 -SkipAnalyze       # Skip /analyze (faster)
 #     .\scripts\ci.ps1 -SkipIntegration   # Skip integration tests
+#     .\scripts\ci.ps1 -SkipTests         # Skip unit tests (see issue #70)
 
 param(
     [switch]$SkipAnalyze,
-    [switch]$SkipIntegration
+    [switch]$SkipIntegration,
+    [switch]$SkipTests
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,6 +105,9 @@ try {
 # -- Step 4: Unit tests (CTest) ------------------------------------------------
 
 Write-Step "Unit tests (GTest direct)"
+if ($SkipTests) {
+    Write-Host "  Skipped via -SkipTests flag (see issue #70)" -ForegroundColor Yellow
+} else {
 $TestExe = Join-Path $BuildDir "Release\akesoav_tests.exe"
 try {
     # Run GTest directly, excluding suites that hang or need special setup.
@@ -145,6 +150,7 @@ try {
 } catch {
     Write-Fail "Unit tests: $_"
 }
+} # end if (!$SkipTests)
 
 # -- Step 5: Compile test signatures -------------------------------------------
 
