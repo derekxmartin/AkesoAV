@@ -417,6 +417,13 @@ if (-not $upxExe) {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[SKIP] Scenario B - UPX packing failed: $upxResult" -ForegroundColor DarkYellow
     } else {
+        Write-Host "       UPX pack result: $upxResult"
+        $packedSize = (Get-Item $pathPackedB).Length
+        Write-Host "       Packed file size: $packedSize bytes (was $($peBytes.Length))"
+        # Debug B.2 scan
+        $dbg2 = & $AkavScan --db $dbPathB -v -j --no-heuristics --no-whitelist $pathPackedB 2>&1
+        Write-Host "       B.2 debug: $($dbg2 | Out-String)"
+
         # Test 4: Packed PE - UPX unpack + rescan catches it
         Assert-DetectedBy -TestName "B.2 Packed PE detected via UPX unpack" `
             -DbPath $dbPathB -FilePath $pathPackedB -ExpectedScannerId "upx:*" `
