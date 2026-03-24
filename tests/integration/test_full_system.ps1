@@ -332,20 +332,46 @@ Log-Skip "26" "XLL drop (needs Excel + XLL sample)"
 Write-Host ""
 Write-Host "--- SIEM Events ---" -ForegroundColor Yellow
 
+# Trigger a scan via service pipe to generate SIEM events
 $siemLog = "C:\ProgramData\Akeso\Logs\akesoav.jsonl"
+try {
+    $sp = New-Object System.IO.Pipes.NamedPipeClientStream(".", $ScanPipe, [System.IO.Pipes.PipeDirection]::InOut)
+    $sp.Connect(3000)
+    $sw = New-Object System.IO.StreamWriter($sp); $sw.AutoFlush = $true
+    $sr = New-Object System.IO.StreamReader($sp)
+    $greeting = $sr.ReadLine()  # consume greeting
+    $sw.WriteLine("SCAN $eicarFile")
+    $scanResp = $sr.ReadLine()
+    $sp.Dispose()
+    Start-Sleep -Seconds 1  # allow SIEM flush
+} catch { }
+
+# Read SIEM log with shared access (file is held open by service)
+$siemLines = @()
 if (Test-Path $siemLog) {
-    $siemLines = Get-Content $siemLog -ErrorAction SilentlyContinue
-    if ($siemLines -and $siemLines.Count -gt 0) {
-        Log-Pass "27" "SIEM scan events: $($siemLines.Count) events in JSONL"
-        Log-Pass "32" "SIEM JSONL local log: $($siemLines.Count) entries"
+    try {
+        $fs = [System.IO.File]::Open($siemLog, [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $rd = New-Object System.IO.StreamReader($fs)
+        $content = $rd.ReadToEnd()
+        $rd.Close(); $fs.Close()
+        $siemLines = $content -split "`n" | Where-Object { $_.Trim().Length -gt 0 }
+    } catch { }
+}
+
+if ($siemLines.Count -gt 0) {
+    $hasScanResult = ($siemLines | Where-Object { $_ -match "av:scan_result" }).Count -gt 0
+    if ($hasScanResult) {
+        Log-Pass "27" "SIEM scan_result event found ($($siemLines.Count) total events)"
     } else {
-        Log-Skip "27" "SIEM log empty"; Log-Skip "32" "SIEM log empty"
+        Log-Fail "27" "SIEM log has $($siemLines.Count) events but no av:scan_result"
     }
+    Log-Pass "32" "SIEM JSONL local log: $($siemLines.Count) entries"
 } else {
-    Log-Skip "27" "SIEM JSONL not found"; Log-Skip "32" "SIEM JSONL not found"
+    Log-Skip "27" "SIEM log empty or not found"
+    Log-Skip "32" "SIEM log empty or not found"
 }
 Log-Skip "28" "SIEM quarantine event (needs quarantine action)"
-Log-Skip "29" "SIEM realtime block (covered above in EDR)"
 Log-Skip "30" "SIEM signature update event (needs update cycle)"
 Log-Skip "31" "SIEM scan error event (needs timeout scenario)"
 
