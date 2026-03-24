@@ -89,28 +89,23 @@ def run_server(scenario, port=8443):
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         cwd=PROJECT_ROOT, text=True
     )
-    # Wait for server to be ready
+    # Wait for server to be ready (port accepting connections)
     if not wait_for_port(port, timeout=15):
         proc.kill()
         return None, None
 
-    # Read initial output to find pubkey path
+    # Give server a moment to write pubkey file
     time.sleep(1)
-    output = ""
-    while True:
-        line = proc.stdout.readline()
-        if not line:
-            break
-        output += line
-        if "listening" in line.lower() or "ready" in line.lower() or "pubkey" in line.lower():
-            # Keep reading a bit more
-            time.sleep(0.5)
-            break
 
-    pubkey = find_pubkey_path(output)
-    if not pubkey:
-        # Try default location
-        pubkey = os.path.join(PROJECT_ROOT, "test_pubkey.bin")
+    # Find pubkey — the server writes test_pubkey.bin in CWD
+    pubkey = os.path.join(PROJECT_ROOT, "test_pubkey.bin")
+    if not os.path.exists(pubkey):
+        # Try alternate names
+        for name in ["pubkey.bin", "test_pubkey.bin"]:
+            p = os.path.join(PROJECT_ROOT, name)
+            if os.path.exists(p):
+                pubkey = p
+                break
 
     return proc, pubkey
 
