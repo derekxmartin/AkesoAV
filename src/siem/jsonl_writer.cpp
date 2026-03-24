@@ -14,6 +14,8 @@
 #include <cstring>
 #include <direct.h>
 #include <sys/stat.h>
+#include <io.h>
+#include <fcntl.h>
 
 namespace akav {
 
@@ -123,11 +125,27 @@ bool JsonlWriter::open_file()
         fp_ = nullptr;
     }
 
-    /* Open in append mode */
-    errno_t err = fopen_s(&fp_, path_.c_str(), "ab");
-    if (err != 0 || !fp_) {
-        fprintf(stderr, "[jsonl_writer] Cannot open '%s' (errno=%d)\n",
-                path_.c_str(), err);
+    /* Open in append mode with FILE_SHARE_READ so SIEM log can be read
+     * by other processes (test scripts, log viewers) while service runs. */
+    HANDLE hFile = CreateFileA(path_.c_str(),
+        FILE_APPEND_DATA | FILE_GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "[jsonl_writer] Cannot open '%s' (err=%lu)\n",
+                path_.c_str(), GetLastError());
+        return false;
+    }
+    int fd = _open_osfhandle((intptr_t)hFile, _O_APPEND | _O_WRONLY);
+    if (fd == -1) {
+        CloseHandle(hFile);
+        fprintf(stderr, "[jsonl_writer] Cannot create fd for '%s'\n", path_.c_str());
+        return false;
+    }
+    fp_ = _fdopen(fd, "ab");
+    if (!fp_) {
+        _close(fd);
+        fprintf(stderr, "[jsonl_writer] Cannot fdopen '%s'\n", path_.c_str());
         return false;
     }
 
