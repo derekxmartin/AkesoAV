@@ -117,11 +117,12 @@ try {
     #     short-circuits before signature stages run
     # Also exclude ParserResilience/HeuristicEvasion (need generated samples;
     # validated separately in Step 9 after sample generation)
-    $excludeFilter = "QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*:OOXML.DetectsVbaProjectBin"
+    $excludeFilter = 'QuarantineTest.*:X86Emu.*:HeuristicEvasion.*:ParserResilience.*:EmuEvasion.*:ScanPipelineTest.*:EicarTest.*:EngineIntegration.*:ZipParser.*:OOXML.DetectsVbaProjectBin'
+    $outFile = Join-Path $env:TEMP "gtest_out_$PID.txt"
     $oldPref = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    cmd /c "`"$TestExe`" `"--gtest_filter=-$excludeFilter`" > `"$env:TEMP\gtest_out.txt`" 2>&1"
+    & $TestExe "--gtest_filter=-$excludeFilter" 2>&1 | Out-File -FilePath $outFile -Encoding utf8
     $gtestExit = $LASTEXITCODE
-    $gtestOutput = Get-Content "$env:TEMP\gtest_out.txt" -ErrorAction SilentlyContinue
+    $gtestOutput = Get-Content $outFile -ErrorAction SilentlyContinue
     $ErrorActionPreference = $oldPref
     $gtestOutput | ForEach-Object { "$_" } | Out-Host
     if ($gtestExit -ne 0) { throw "GTest reported failures (exit $gtestExit)" }
