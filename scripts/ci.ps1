@@ -127,11 +127,11 @@ try {
         $proc.Kill()
         throw "GTest timed out after 5 minutes"
     }
+    $gtestExit = $proc.ExitCode
     $gtestOutput = Get-Content "$env:TEMP\gtest_out.txt" -ErrorAction SilentlyContinue
-    $LASTEXITCODE = $proc.ExitCode
     $ErrorActionPreference = $oldPref
     $gtestOutput | ForEach-Object { "$_" } | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "GTest reported failures" }
+    if ($gtestExit -ne 0) { throw "GTest reported failures (exit $gtestExit)" }
 
     $passLine = ($gtestOutput | Select-String "PASSED") | Select-Object -Last 1
     if ($passLine) {
