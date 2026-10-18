@@ -130,12 +130,15 @@ try {
     $proc = Start-Process -FilePath $TestExe -ArgumentList "--gtest_flagfile=`"$flagFile`"" `
         -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError "$outFile.err"
     $finished = $proc.WaitForExit(300000)
-    if (-not $finished) { $proc.Kill(); throw "GTest timed out after 5 minutes" }
+    if (-not $finished) { $proc.Kill() }
     $proc.WaitForExit()
     $gtestExit = $proc.ExitCode
     $gtestOutput = Get-Content $outFile -ErrorAction SilentlyContinue
+    $gtestErrors = Get-Content "$outFile.err" -ErrorAction SilentlyContinue
     $ErrorActionPreference = $oldPref
     $gtestOutput | ForEach-Object { "$_" } | Out-Host
+    $gtestErrors | ForEach-Object { "$_" } | Out-Host
+    if (-not $finished) { throw "GTest timed out after 5 minutes; captured output is shown above" }
     # Check for PASSED line in output as fallback if ExitCode is null
     $passLine = ($gtestOutput | Select-String '\[  PASSED  \]') | Select-Object -Last 1
     if ($null -eq $gtestExit -and $passLine) { $gtestExit = 0 }
