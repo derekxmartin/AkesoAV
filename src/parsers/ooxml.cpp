@@ -243,7 +243,7 @@ bool akav_ooxml_detect(const uint8_t* data, size_t data_len)
     return false;
 }
 
-void akav_ooxml_free(akav_ooxml_result_t* result)
+void akav_ooxml_free(AKAV_INOUT_OPT akav_ooxml_result_t* result)
 {
     if (!result) return;
 

@@ -362,7 +362,7 @@ bool Quarantine::encrypt_file(const char* src_path, const char* dst_path)
     }
 
     LARGE_INTEGER file_size;
-    if (!GetFileSizeEx(hf, &file_size) || file_size.QuadPart > (1LL << 30)) {
+    if (!GetFileSizeEx(hf, &file_size) || file_size.QuadPart < 0 || file_size.QuadPart > (1LL << 30)) {
         q_log("error", "File too large or size error: %s", src_path);
         CloseHandle(hf);
         return false;
@@ -372,19 +372,25 @@ bool Quarantine::encrypt_file(const char* src_path, const char* dst_path)
     std::vector<uint8_t> plaintext(data_len);
 
     DWORD read_count = 0;
+    BOOL read_ok = TRUE;
     if (data_len > 0) {
-        ReadFile(hf, plaintext.data(), (DWORD)data_len, &read_count, NULL);
+        read_ok = ReadFile(hf, plaintext.data(), (DWORD)data_len, &read_count, NULL);
     }
     CloseHandle(hf);
 
-    if (read_count != (DWORD)data_len) {
+    if (!read_ok || read_count != (DWORD)data_len) {
         q_log("error", "Read incomplete for '%s'", src_path);
+        SecureZeroMemory(plaintext.data(), plaintext.size());
         return false;
     }
 
     /* Generate random IV */
     uint8_t iv[GCM_IV_LEN];
-    BCryptGenRandom(NULL, iv, (ULONG)GCM_IV_LEN, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, iv, (ULONG)GCM_IV_LEN, BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
+        q_log("error", "Cannot generate quarantine encryption IV");
+        SecureZeroMemory(plaintext.data(), plaintext.size());
+        return false;
+    }
 
     /* Encrypt */
     std::vector<uint8_t> ciphertext(data_len);

@@ -2,6 +2,7 @@
 #define AKAV_OLE2_H
 
 #include <stdint.h>
+#include "analysis_annotations.h"
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -96,10 +97,10 @@ typedef struct {
     akav_ole2_dir_entry_t* dir_entries;
     uint32_t               num_dir_entries;
 
-    akav_ole2_stream_t* streams;
+    AKAV_FIELD_INITIALIZED(num_streams) akav_ole2_stream_t* streams;
     uint32_t            num_streams;
 
-    akav_ole2_vba_module_t* vba_modules;
+    AKAV_FIELD_INITIALIZED(num_vba_modules) akav_ole2_vba_module_t* vba_modules;
     uint32_t                num_vba_modules;
 
     bool has_vba;
@@ -116,7 +117,7 @@ typedef struct {
 bool akav_ole2_parse(akav_ole2_t* ole2,
                       const uint8_t* data, size_t data_len);
 
-void akav_ole2_free(akav_ole2_t* ole2);
+void akav_ole2_free(AKAV_INOUT_OPT akav_ole2_t* ole2);
 
 bool akav_ole2_extract_streams(akav_ole2_t* ole2,
                                 const uint8_t* data, size_t data_len);

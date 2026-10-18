@@ -1223,7 +1223,7 @@ bool akav_pdf_parse(akav_pdf_t* pdf, const uint8_t* data, size_t data_len)
     return true;
 }
 
-void akav_pdf_free(akav_pdf_t* pdf)
+void akav_pdf_free(AKAV_INOUT_OPT akav_pdf_t* pdf)
 {
     if (!pdf) return;
 

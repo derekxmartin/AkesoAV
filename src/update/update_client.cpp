@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <memory>
 
 /* ── Placeholder RSA public key (test key, replaced for production) ── */
 
@@ -807,7 +808,8 @@ bool akav_update_check(const akav_update_config_t* config,
     }
 
     /* 2. Parse manifest */
-    akav_update_manifest_t manifest;
+    auto manifest_storage = std::make_unique<akav_update_manifest_t>();
+    akav_update_manifest_t& manifest = *manifest_storage;
     if (!akav_update_parse_manifest((const char*)manifest_data, manifest_len,
                                      &manifest)) {
         free(manifest_data);

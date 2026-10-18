@@ -17,6 +17,7 @@
 #include <io.h>
 #include <fcntl.h>
 #include <filesystem>
+#include <cerrno>
 
 namespace akav {
 
@@ -173,12 +174,18 @@ void JsonlWriter::rotate()
     for (int i = MAX_ROTATIONS - 1; i >= 1; --i) {
         std::string from = rotated_name(path_, i);
         std::string to   = rotated_name(path_, i + 1);
-        rename(from.c_str(), to.c_str()); /* OK if source doesn't exist */
+        if (rename(from.c_str(), to.c_str()) != 0 && errno != ENOENT) {
+            fprintf(stderr, "[siem] Cannot rotate log '%s' (errno %d)\n", from.c_str(), errno);
+            open_file();
+            return;
+        }
     }
 
     /* Current -> .1 */
     std::string first = rotated_name(path_, 1);
-    rename(path_.c_str(), first.c_str());
+    if (rename(path_.c_str(), first.c_str()) != 0 && errno != ENOENT) {
+        fprintf(stderr, "[siem] Cannot rotate current log (errno %d)\n", errno);
+    }
 
     /* Reopen fresh file */
     open_file();

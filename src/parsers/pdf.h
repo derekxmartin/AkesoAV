@@ -2,6 +2,7 @@
 #define AKAV_PDF_H
 
 #include <stdint.h>
+#include "analysis_annotations.h"
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -79,11 +80,11 @@ typedef struct {
     uint32_t catalog_obj;
 
     /* Extracted JavaScript */
-    akav_pdf_js_entry_t*   js_entries;     /* heap-allocated */
+    AKAV_FIELD_INITIALIZED(num_js) akav_pdf_js_entry_t*   js_entries;     /* heap-allocated */
     uint32_t               num_js;
 
     /* Extracted embedded files */
-    akav_pdf_embedded_file_t* embedded_files; /* heap-allocated */
+    AKAV_FIELD_INITIALIZED(num_embedded) akav_pdf_embedded_file_t* embedded_files; /* heap-allocated */
     uint32_t                  num_embedded;
 
     /* Suspicious indicators */
@@ -115,7 +116,7 @@ bool akav_pdf_parse(akav_pdf_t* pdf, const uint8_t* data, size_t data_len);
  * Free all heap-allocated data in the PDF struct.
  * Safe to call on a zeroed or partially-parsed pdf.
  */
-void akav_pdf_free(akav_pdf_t* pdf);
+void akav_pdf_free(AKAV_INOUT_OPT akav_pdf_t* pdf);
 
 /**
  * Extract JavaScript from the document.

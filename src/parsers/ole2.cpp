@@ -690,7 +690,7 @@ bool akav_ole2_parse(akav_ole2_t* ole2, const uint8_t* data, size_t data_len)
 /* ── Public: akav_ole2_free ──────────────────────────────────────── */
 
 extern "C"
-void akav_ole2_free(akav_ole2_t* ole2)
+void akav_ole2_free(AKAV_INOUT_OPT akav_ole2_t* ole2)
 {
     if (!ole2) return;
 
