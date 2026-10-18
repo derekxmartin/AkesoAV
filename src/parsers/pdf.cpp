@@ -438,7 +438,7 @@ bool akav_pdf_decode_asciihex(const uint8_t* in, size_t in_len,
 {
     if (!in || !out || !out_len) return false;
 
-    size_t out_cap = in_len / 2 + 1;
+    const size_t out_cap = in_len / 2 + in_len % 2;
     uint8_t* buf = (uint8_t*)malloc(out_cap + 1);
     if (!buf) return false;
 
@@ -463,10 +463,8 @@ bool akav_pdf_decode_asciihex(const uint8_t* in, size_t in_len,
         nibbles++;
         if (nibbles == 2) {
             if (dst >= out_cap) {
-                out_cap *= 2;
-                uint8_t* nb = (uint8_t*)realloc(buf, out_cap + 1);
-                if (!nb) { free(buf); return false; }
-                buf = nb;
+                free(buf);
+                return false;
             }
             buf[dst++] = byte;
             byte = 0;
@@ -477,10 +475,8 @@ bool akav_pdf_decode_asciihex(const uint8_t* in, size_t in_len,
     // Trailing odd nibble: pad with 0
     if (nibbles == 1) {
         if (dst >= out_cap) {
-            out_cap++;
-            uint8_t* nb = (uint8_t*)realloc(buf, out_cap + 1);
-            if (!nb) { free(buf); return false; }
-            buf = nb;
+            free(buf);
+            return false;
         }
         buf[dst++] = (byte << 4);
     }

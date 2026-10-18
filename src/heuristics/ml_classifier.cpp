@@ -384,7 +384,7 @@ bool akav_ml_model_load(akav_ml_model_t* model, const char* json_path)
 void akav_ml_model_free(akav_ml_model_t* model)
 {
     if (!model) return;
-    for (uint32_t i = 0; i < model->num_trees; i++) {
+    for (uint32_t i = 0; i < model->num_trees && i < AKAV_ML_MAX_TREES; i++) {
         free(model->trees[i].nodes);
     }
     memset(model, 0, sizeof(*model));

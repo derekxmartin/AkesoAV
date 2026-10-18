@@ -19,6 +19,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <memory>
 
 /* ── INT callback for stub dispatch ──────────────────────────── */
 
@@ -182,7 +183,8 @@ bool akav_generic_unpack(const uint8_t* pe_data, size_t pe_len,
     }
 
     /* Initialize stub table */
-    akav_stub_table_t stubs;
+    auto stub_storage = std::make_unique<akav_stub_table_t>();
+    akav_stub_table_t& stubs = *stub_storage;
     akav_stub_table_init(&stubs);
 
     /* Load PE */

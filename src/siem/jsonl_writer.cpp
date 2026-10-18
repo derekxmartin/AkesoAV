@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <io.h>
 #include <fcntl.h>
+#include <filesystem>
 
 namespace akav {
 
@@ -40,17 +41,11 @@ static std::string parent_dir(const std::string& path)
     return path.substr(0, pos);
 }
 
-static void ensure_directory(const std::string& dir)
+static bool ensure_directory(const std::string& dir)
 {
-    /* Create all components. Simple recursive approach. */
-    for (size_t i = 0; i < dir.size(); ++i) {
-        if (dir[i] == '\\' || dir[i] == '/') {
-            std::string sub = dir.substr(0, i);
-            if (!sub.empty() && sub.back() != ':')
-                _mkdir(sub.c_str());
-        }
-    }
-    _mkdir(dir.c_str());
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    return !error;
 }
 
 /* Build the rotated filename:
@@ -90,7 +85,10 @@ bool JsonlWriter::init(const char* path)
     path_ = path ? path : default_jsonl_path();
 
     /* Ensure parent directory exists */
-    ensure_directory(parent_dir(path_));
+    if (!ensure_directory(parent_dir(path_))) {
+        DeleteCriticalSection(&cs_);
+        return false;
+    }
 
     if (!open_file()) {
         DeleteCriticalSection(&cs_);

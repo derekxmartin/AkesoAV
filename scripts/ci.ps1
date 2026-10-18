@@ -270,10 +270,9 @@ if (-not $SkipAnalyze) {
 
     $AnalyzeDir = Join-Path $ProjectRoot "build-analyze"
     try {
-        # Configure a separate build with /analyze
+        # Analyze project targets, without analyzing vendored dependency sources.
         cmake -G "Visual Studio 17 2022" -B $AnalyzeDir `
-            -DCMAKE_C_FLAGS="/analyze /analyze:external-" `
-            -DCMAKE_CXX_FLAGS="/analyze /analyze:external- /EHsc" 2>&1 | Out-Host
+            -DAKAV_ENABLE_ANALYZE=ON 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "Analyze configure failed" }
 
         # Build only our targets (skip GTest/GMock which trigger /analyze warnings)

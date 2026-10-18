@@ -233,10 +233,10 @@ bool Quarantine::load_key_dpapi()
 
     std::vector<uint8_t> blob(file_size);
     DWORD read_count = 0;
-    ReadFile(hf, blob.data(), file_size, &read_count, NULL);
+    BOOL read_ok = ReadFile(hf, blob.data(), file_size, &read_count, NULL);
     CloseHandle(hf);
 
-    if (read_count != file_size) {
+    if (!read_ok || read_count != file_size) {
         q_log("error", "Key file read incomplete");
         return false;
     }

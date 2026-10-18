@@ -91,6 +91,14 @@ TEST(MLClassifier, FreeNullIsNoOp) {
     akav_ml_model_free(&model);
 }
 
+TEST(MLClassifier, FreeBoundsCorruptTreeCount) {
+    akav_ml_model_t model;
+    akav_ml_model_init(&model);
+    model.num_trees = AKAV_ML_MAX_TREES + 1;
+    akav_ml_model_free(&model);
+    EXPECT_EQ(model.num_trees, 0u);
+}
+
 /* ── JSON loading ────────────────────────────────────────────────── */
 
 TEST(MLClassifier, LoadSimpleModel) {

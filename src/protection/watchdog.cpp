@@ -114,6 +114,19 @@ static bool is_process_alive(akav_watchdog_t* wd)
 
 /* ── Heartbeat (PING/PONG) ──────────────────────────────────────── */
 
+static void cancel_and_drain(HANDLE pipe, OVERLAPPED* operation)
+{
+    if (!CancelIoEx(pipe, operation) && GetLastError() != ERROR_NOT_FOUND) {
+        fprintf(stderr, "[watchdog] Cannot cancel pipe operation: %lu\n", GetLastError());
+    }
+    // The OVERLAPPED structure and buffer must outlive cancellation completion.
+    DWORD transferred = 0;
+    if (!GetOverlappedResult(pipe, operation, &transferred, TRUE) &&
+        GetLastError() != ERROR_OPERATION_ABORTED) {
+        fprintf(stderr, "[watchdog] Pipe operation ended with error: %lu\n", GetLastError());
+    }
+}
+
 static bool send_ping(uint32_t timeout_ms)
 {
     if (timeout_ms == 0) timeout_ms = 3000;
@@ -135,12 +148,20 @@ static bool send_ping(uint32_t timeout_ms)
     OVERLAPPED ov_w;
     memset(&ov_w, 0, sizeof(ov_w));
     ov_w.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!ov_w.hEvent) {
+        CloseHandle(pipe);
+        return false;
+    }
     DWORD written = 0;
 
-    WriteFile(pipe, AKAV_WATCHDOG_PING, 4, NULL, &ov_w);
+    if (!WriteFile(pipe, AKAV_WATCHDOG_PING, 4, NULL, &ov_w) && GetLastError() != ERROR_IO_PENDING) {
+        CloseHandle(ov_w.hEvent);
+        CloseHandle(pipe);
+        return false;
+    }
     DWORD wait = WaitForSingleObject(ov_w.hEvent, timeout_ms);
     if (wait != WAIT_OBJECT_0 || !GetOverlappedResult(pipe, &ov_w, &written, FALSE) || written != 4) {
-        CancelIo(pipe);
+        cancel_and_drain(pipe, &ov_w);
         CloseHandle(ov_w.hEvent);
         CloseHandle(pipe);
         return false;
@@ -153,8 +174,16 @@ static bool send_ping(uint32_t timeout_ms)
     OVERLAPPED ov_r;
     memset(&ov_r, 0, sizeof(ov_r));
     ov_r.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (!ov_r.hEvent) {
+        CloseHandle(pipe);
+        return false;
+    }
 
-    ReadFile(pipe, response, sizeof(response) - 1, NULL, &ov_r);
+    if (!ReadFile(pipe, response, sizeof(response) - 1, NULL, &ov_r) && GetLastError() != ERROR_IO_PENDING) {
+        CloseHandle(ov_r.hEvent);
+        CloseHandle(pipe);
+        return false;
+    }
     wait = WaitForSingleObject(ov_r.hEvent, timeout_ms);
 
     bool ok = false;
@@ -163,7 +192,7 @@ static bool send_ping(uint32_t timeout_ms)
         bytes_read >= 4) {
         ok = (memcmp(response, AKAV_WATCHDOG_PONG, 4) == 0);
     } else {
-        CancelIo(pipe);
+        cancel_and_drain(pipe, &ov_r);
     }
 
     CloseHandle(ov_r.hEvent);

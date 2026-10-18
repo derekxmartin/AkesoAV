@@ -198,7 +198,7 @@ static bool parse_section_headers(akav_elf_t* elf, akav_safe_reader_t* r,
     elf->num_sections = count;
 
     // Resolve section names from shstrtab
-    if (elf->e_shstrndx < count &&
+    if (elf->e_shstrndx < count && elf->e_shstrndx < AKAV_ELF_MAX_SECTIONS &&
         elf->sections[elf->e_shstrndx].sh_type == AKAV_ELF_SHT_STRTAB) {
         const akav_elf_section_t* shstrtab = &elf->sections[elf->e_shstrndx];
         for (uint16_t i = 0; i < count; i++) {

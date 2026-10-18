@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cctype>
+#include <vector>
 
 /* ── Error / warning helpers ─────────────────────────────────────── */
 
@@ -353,7 +354,7 @@ static bool build_fat(akav_ole2_t* ole2, const uint8_t* data, size_t data_len)
     }
 
     /* Collect all FAT sector IDs from DIFAT */
-    uint32_t fat_sector_ids[AKAV_OLE2_MAX_FAT_SECTORS];
+    std::vector<uint32_t> fat_sector_ids(AKAV_OLE2_MAX_FAT_SECTORS);
     uint32_t fat_sector_count = 0;
 
     /* First 109 from header DIFAT */

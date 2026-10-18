@@ -288,6 +288,15 @@ TEST(OOXML, FreeNull) {
     akav_ooxml_free(NULL);
 }
 
+TEST(OOXML, FreeBoundsCorruptCounts) {
+    akav_ooxml_result_t result{};
+    result.num_vba_modules = AKAV_OOXML_MAX_VBA_MODULES + 1;
+    result.num_embedded = AKAV_OOXML_MAX_EMBEDDED + 1;
+    akav_ooxml_free(&result);
+    EXPECT_EQ(result.num_vba_modules, 0u);
+    EXPECT_EQ(result.num_embedded, 0u);
+}
+
 TEST(OOXML, FreeIdempotent) {
     akav_ooxml_result_t result;
     memset(&result, 0, sizeof(result));

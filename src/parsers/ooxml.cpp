@@ -247,10 +247,10 @@ void akav_ooxml_free(akav_ooxml_result_t* result)
 {
     if (!result) return;
 
-    for (uint32_t i = 0; i < result->num_vba_modules; i++) {
+    for (uint32_t i = 0; i < result->num_vba_modules && i < AKAV_OOXML_MAX_VBA_MODULES; i++) {
         free(result->vba_modules[i].source);
     }
-    for (uint32_t i = 0; i < result->num_embedded; i++) {
+    for (uint32_t i = 0; i < result->num_embedded && i < AKAV_OOXML_MAX_EMBEDDED; i++) {
         free(result->embedded[i].data);
     }
     memset(result, 0, sizeof(*result));

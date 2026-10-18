@@ -470,9 +470,9 @@ akav_error_t Engine::scan_buffer(const uint8_t* buf, size_t len, const char* nam
         srp.file_size = (uint64_t)result->total_size;
         srp.in_whitelist = (result->in_whitelist != 0);
 
-        akav_siem_event_t siem_event;
-        serialize_scan_result(srp, &siem_event);
-        siem_->submit(siem_event);
+        auto siem_event = std::make_unique<akav_siem_event_t>();
+        serialize_scan_result(srp, siem_event.get());
+        siem_->submit(*siem_event);
     }
 
     return AKAV_OK;
