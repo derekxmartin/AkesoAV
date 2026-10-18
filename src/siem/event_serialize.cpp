@@ -45,8 +45,11 @@ static std::string json_escape(const std::string& s)
 std::string generate_uuid_v4()
 {
     uint8_t bytes[16];
-    BCryptGenRandom(nullptr, bytes, sizeof(bytes),
-                    BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (BCryptGenRandom(nullptr, bytes, sizeof(bytes),
+                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) {
+        fprintf(stderr, "[siem] Cannot generate event UUID: system RNG failed\n");
+        return {};
+    }
 
     /* Set version 4 (bits 12-15 of time_hi_and_version) */
     bytes[6] = (bytes[6] & 0x0F) | 0x40;

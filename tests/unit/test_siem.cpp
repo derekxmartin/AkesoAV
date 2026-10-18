@@ -402,6 +402,16 @@ TEST(SiemCallback, InvokedOnSubmit)
     EXPECT_STREQ(ctx.events[0].event_type, "av:scan_error");
 }
 
+TEST(SiemCallback, RejectsMissingEventId)
+{
+    akav::SiemShipper shipper;
+    CallbackContext ctx;
+    shipper.set_callback(test_siem_callback, &ctx);
+    akav_siem_event_t event{};
+    shipper.submit(event);
+    EXPECT_TRUE(ctx.events.empty());
+}
+
 TEST(SiemCallback, ClearCallbackStopsDelivery)
 {
     akav::SiemShipper shipper;

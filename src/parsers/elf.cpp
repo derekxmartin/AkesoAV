@@ -198,12 +198,16 @@ static bool parse_section_headers(akav_elf_t* elf, akav_safe_reader_t* r,
     elf->num_sections = count;
 
     // Resolve section names from shstrtab
-    if (elf->e_shstrndx < count &&
-        elf->sections[elf->e_shstrndx].sh_type == AKAV_ELF_SHT_STRTAB) {
-        const akav_elf_section_t* shstrtab = &elf->sections[elf->e_shstrndx];
-        for (uint16_t i = 0; i < count; i++) {
-            resolve_name(data, data_len, shstrtab, elf->sections[i].sh_name,
-                         elf->sections[i].name, AKAV_ELF_MAX_NAME_LEN);
+    {
+        const size_t shstr_index = elf->e_shstrndx;
+        if (shstr_index >= count || shstr_index >= AKAV_ELF_MAX_SECTIONS)
+            return true;
+        const akav_elf_section_t* shstrtab = &elf->sections[shstr_index];
+        if (shstrtab->sh_type == AKAV_ELF_SHT_STRTAB) {
+            for (uint16_t i = 0; i < count; i++) {
+                resolve_name(data, data_len, shstrtab, elf->sections[i].sh_name,
+                             elf->sections[i].name, AKAV_ELF_MAX_NAME_LEN);
+            }
         }
     }
 

@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ── Options ──
 option(AKAV_BUILD_TESTS "Build unit tests" ON)
 option(AKAV_BUILD_FUZZ "Build fuzz targets (requires clang-cl)" OFF)
+option(AKAV_ENABLE_ANALYZE "Run MSVC static analysis on AkesoAV targets" OFF)
 
 # Fuzz builds: libFuzzer runtime is /MT, so force static CRT everywhere
 if(AKAV_BUILD_FUZZ)
@@ -126,6 +127,12 @@ set_target_properties(akesoav PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 # ── akavscan.exe (CLI scanner) ──
 add_executable(akavscan src/cli/akavscan.c)
+
+if(MSVC AND AKAV_ENABLE_ANALYZE)
+    foreach(target akesoav_core akesoav akavscan)
+        target_compile_options(${target} PRIVATE /analyze /analyze:external-)
+    endforeach()
+endif()
 target_link_libraries(akavscan PRIVATE akesoav_core)
 target_compile_options(akavscan PRIVATE ${AKAV_WARNING_FLAGS})
 

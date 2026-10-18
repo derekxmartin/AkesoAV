@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import zipfile
 
 import pytest
 
@@ -257,20 +258,25 @@ class TestCleanFiles:
 class TestScanOptions:
     """Verify scan options affect behavior."""
 
-    def test_archives_disabled_skips_zip(self, engine):
-        """With scan_archives=False, EICAR in ZIP is NOT detected."""
-        path = os.path.join(TESTDATA, "eicar.zip")
-        skip_if_missing(path, "eicar.zip")
+    @pytest.fixture
+    def compressed_eicar_zip(self, tmp_path):
+        path = tmp_path / "compressed-eicar.zip"
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("test.txt", EICAR)
+        # A stored ZIP exposes the bytestream signature without decompression.
+        assert EICAR[:9] not in path.read_bytes()
+        return str(path)
+
+    def test_archives_disabled_skips_zip(self, engine, compressed_eicar_zip):
+        """Disabling archive extraction leaves compressed EICAR undetected."""
         opts = ScanOptions(scan_archives=False)
-        result = engine.scan_file(path, options=opts)
+        result = engine.scan_file(compressed_eicar_zip, options=opts)
         assert result.found is False, "EICAR in ZIP detected with archives disabled"
 
-    def test_archives_enabled_detects_zip(self, engine):
+    def test_archives_enabled_detects_zip(self, engine, compressed_eicar_zip):
         """With scan_archives=True (default), EICAR in ZIP IS detected."""
-        path = os.path.join(TESTDATA, "eicar.zip")
-        skip_if_missing(path, "eicar.zip")
         opts = ScanOptions(scan_archives=True)
-        result = engine.scan_file(path, options=opts)
+        result = engine.scan_file(compressed_eicar_zip, options=opts)
         assert result.found is True, "EICAR in ZIP not detected with archives enabled"
 
 

@@ -438,7 +438,7 @@ bool akav_pdf_decode_asciihex(const uint8_t* in, size_t in_len,
 {
     if (!in || !out || !out_len) return false;
 
-    size_t out_cap = in_len / 2 + 1;
+    const size_t out_cap = in_len / 2 + in_len % 2;
     uint8_t* buf = (uint8_t*)malloc(out_cap + 1);
     if (!buf) return false;
 
@@ -463,10 +463,8 @@ bool akav_pdf_decode_asciihex(const uint8_t* in, size_t in_len,
         nibbles++;
         if (nibbles == 2) {
             if (dst >= out_cap) {
-                out_cap *= 2;
-                uint8_t* nb = (uint8_t*)realloc(buf, out_cap + 1);
-                if (!nb) { free(buf); return false; }
-                buf = nb;
+                free(buf);
+                return false;
             }
             buf[dst++] = byte;
             byte = 0;
@@ -477,10 +475,8 @@ bool akav_pdf_decode_asciihex(const uint8_t* in, size_t in_len,
     // Trailing odd nibble: pad with 0
     if (nibbles == 1) {
         if (dst >= out_cap) {
-            out_cap++;
-            uint8_t* nb = (uint8_t*)realloc(buf, out_cap + 1);
-            if (!nb) { free(buf); return false; }
-            buf = nb;
+            free(buf);
+            return false;
         }
         buf[dst++] = (byte << 4);
     }
@@ -1227,7 +1223,7 @@ bool akav_pdf_parse(akav_pdf_t* pdf, const uint8_t* data, size_t data_len)
     return true;
 }
 
-void akav_pdf_free(akav_pdf_t* pdf)
+void akav_pdf_free(AKAV_INOUT_OPT akav_pdf_t* pdf)
 {
     if (!pdf) return;
 
@@ -1236,16 +1232,20 @@ void akav_pdf_free(akav_pdf_t* pdf)
     pdf->num_objects = 0;
 
     if (pdf->js_entries) {
-        for (uint32_t i = 0; i < pdf->num_js; i++)
+        for (uint32_t i = 0; i < pdf->num_js; i++) {
             free(pdf->js_entries[i].data);
+            pdf->js_entries[i].data = nullptr;
+        }
         free(pdf->js_entries);
         pdf->js_entries = nullptr;
     }
     pdf->num_js = 0;
 
     if (pdf->embedded_files) {
-        for (uint32_t i = 0; i < pdf->num_embedded; i++)
+        for (uint32_t i = 0; i < pdf->num_embedded; i++) {
             free(pdf->embedded_files[i].data);
+            pdf->embedded_files[i].data = nullptr;
+        }
         free(pdf->embedded_files);
         pdf->embedded_files = nullptr;
     }

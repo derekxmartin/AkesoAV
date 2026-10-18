@@ -108,6 +108,7 @@ void serialize_scan_error(const ScanErrorPayload& p, akav_siem_event_t* out);
 /* ---- Utility --------------------------------------------------------- */
 
 /* Generate a UUID v4 string (uses BCryptGenRandom). */
+// Returns an empty string if the system random generator fails.
 std::string generate_uuid_v4();
 
 /* Get ISO 8601 timestamp with milliseconds: "2026-03-14T15:30:00.456Z" */

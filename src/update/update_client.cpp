@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <memory>
 
 /* ── Placeholder RSA public key (test key, replaced for production) ── */
 
@@ -375,8 +376,13 @@ bool akav_update_sha256_file(const char* path,
 
     DWORD hash_obj_len = 0;
     DWORD cb = 0;
-    BCryptGetProperty(alg, BCRYPT_OBJECT_LENGTH, (PUCHAR)&hash_obj_len,
-                      sizeof(hash_obj_len), &cb, 0);
+    status = BCryptGetProperty(alg, BCRYPT_OBJECT_LENGTH, (PUCHAR)&hash_obj_len,
+                               sizeof(hash_obj_len), &cb, 0);
+    if (!BCRYPT_SUCCESS(status) || cb != sizeof(hash_obj_len) || hash_obj_len == 0) {
+        BCryptCloseAlgorithmProvider(alg, 0);
+        fclose(f);
+        return false;
+    }
 
     uint8_t* hash_obj = (uint8_t*)malloc(hash_obj_len);
     if (!hash_obj) goto cleanup;
@@ -392,6 +398,7 @@ bool akav_update_sha256_file(const char* path,
             status = BCryptHashData(hash, buf, (ULONG)rd, 0);
             if (!BCRYPT_SUCCESS(status)) goto cleanup;
         }
+        if (ferror(f)) goto cleanup;
     }
 
     status = BCryptFinishHash(hash, out_hash, AKAV_UPDATE_SHA256_LEN, 0);
@@ -801,7 +808,8 @@ bool akav_update_check(const akav_update_config_t* config,
     }
 
     /* 2. Parse manifest */
-    akav_update_manifest_t manifest;
+    auto manifest_storage = std::make_unique<akav_update_manifest_t>();
+    akav_update_manifest_t& manifest = *manifest_storage;
     if (!akav_update_parse_manifest((const char*)manifest_data, manifest_len,
                                      &manifest)) {
         free(manifest_data);

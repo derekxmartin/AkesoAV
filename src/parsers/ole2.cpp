@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cctype>
+#include <vector>
 
 /* ── Error / warning helpers ─────────────────────────────────────── */
 
@@ -353,7 +354,7 @@ static bool build_fat(akav_ole2_t* ole2, const uint8_t* data, size_t data_len)
     }
 
     /* Collect all FAT sector IDs from DIFAT */
-    uint32_t fat_sector_ids[AKAV_OLE2_MAX_FAT_SECTORS];
+    std::vector<uint32_t> fat_sector_ids(AKAV_OLE2_MAX_FAT_SECTORS);
     uint32_t fat_sector_count = 0;
 
     /* First 109 from header DIFAT */
@@ -689,7 +690,7 @@ bool akav_ole2_parse(akav_ole2_t* ole2, const uint8_t* data, size_t data_len)
 /* ── Public: akav_ole2_free ──────────────────────────────────────── */
 
 extern "C"
-void akav_ole2_free(akav_ole2_t* ole2)
+void akav_ole2_free(AKAV_INOUT_OPT akav_ole2_t* ole2)
 {
     if (!ole2) return;
 
@@ -709,6 +710,7 @@ void akav_ole2_free(akav_ole2_t* ole2)
         for (uint32_t i = 0; i < ole2->num_streams; i++) {
             if (ole2->streams[i].data) {
                 free(ole2->streams[i].data);
+                ole2->streams[i].data = nullptr;
             }
         }
         free(ole2->streams);
@@ -718,6 +720,7 @@ void akav_ole2_free(akav_ole2_t* ole2)
         for (uint32_t i = 0; i < ole2->num_vba_modules; i++) {
             if (ole2->vba_modules[i].source) {
                 free(ole2->vba_modules[i].source);
+                ole2->vba_modules[i].source = nullptr;
             }
         }
         free(ole2->vba_modules);

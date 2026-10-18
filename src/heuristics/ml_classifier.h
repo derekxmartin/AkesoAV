@@ -10,6 +10,7 @@
 
 #include "parsers/pe.h"
 #include <stdint.h>
+#include "analysis_annotations.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -102,7 +103,7 @@ bool akav_ml_model_load_json(akav_ml_model_t* model,
 /**
  * Free all memory allocated by a loaded model.
  */
-void akav_ml_model_free(akav_ml_model_t* model);
+void akav_ml_model_free(AKAV_INOUT_OPT akav_ml_model_t* model);
 
 /**
  * Extract a 14-feature vector from a parsed PE structure.

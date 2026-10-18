@@ -105,6 +105,10 @@ size_t SiemShipper::events_queued() const
 
 void SiemShipper::submit(const akav_siem_event_t& event)
 {
+    if (event.event_id[0] == '\0') {
+        fprintf(stderr, "[siem] Dropping event without a valid event ID\n");
+        return;
+    }
     /* 1. Callback (integrated mode) */
     {
         std::lock_guard<std::mutex> lock(callback_mutex_);
@@ -249,8 +253,8 @@ void SiemShipper::http_loop()
 /* Build a single NDJSON line from an event (same format as JSONL writer). */
 static std::string event_to_ndjson_line(const akav_siem_event_t& event)
 {
-    char line[16384];
-    int len = snprintf(line, sizeof(line),
+    std::vector<char> line(16384);
+    int len = snprintf(line.data(), line.size(),
         "{\"event_id\":\"%s\",\"timestamp\":\"%s\","
         "\"source_type\":\"%s\",\"event_type\":\"%s\","
         "\"agent_id\":\"%s\",\"payload\":%s}",
@@ -258,9 +262,9 @@ static std::string event_to_ndjson_line(const akav_siem_event_t& event)
         event.source_type, event.event_type,
         event.agent_id, event.payload_json);
 
-    if (len <= 0 || (size_t)len >= sizeof(line))
+    if (len <= 0 || (size_t)len >= line.size())
         return "{}";
-    return std::string(line, (size_t)len);
+    return std::string(line.data(), (size_t)len);
 }
 
 bool SiemShipper::http_post_batch(const std::vector<akav_siem_event_t>& batch)

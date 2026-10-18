@@ -2,6 +2,7 @@
 #define AKAV_OOXML_H
 
 #include <stdint.h>
+#include "analysis_annotations.h"
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -87,7 +88,7 @@ bool akav_ooxml_detect(const uint8_t* data, size_t data_len);
 /**
  * Free all allocated memory in the result.
  */
-void akav_ooxml_free(akav_ooxml_result_t* result);
+void akav_ooxml_free(AKAV_INOUT_OPT akav_ooxml_result_t* result);
 
 /**
  * Return human-readable name for OOXML type.

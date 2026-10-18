@@ -16,6 +16,9 @@
 #include <sys/stat.h>
 #include <io.h>
 #include <fcntl.h>
+#include <filesystem>
+#include <cerrno>
+#include <vector>
 
 namespace akav {
 
@@ -40,17 +43,11 @@ static std::string parent_dir(const std::string& path)
     return path.substr(0, pos);
 }
 
-static void ensure_directory(const std::string& dir)
+static bool ensure_directory(const std::string& dir)
 {
-    /* Create all components. Simple recursive approach. */
-    for (size_t i = 0; i < dir.size(); ++i) {
-        if (dir[i] == '\\' || dir[i] == '/') {
-            std::string sub = dir.substr(0, i);
-            if (!sub.empty() && sub.back() != ':')
-                _mkdir(sub.c_str());
-        }
-    }
-    _mkdir(dir.c_str());
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    return !error;
 }
 
 /* Build the rotated filename:
@@ -90,7 +87,10 @@ bool JsonlWriter::init(const char* path)
     path_ = path ? path : default_jsonl_path();
 
     /* Ensure parent directory exists */
-    ensure_directory(parent_dir(path_));
+    if (!ensure_directory(parent_dir(path_))) {
+        DeleteCriticalSection(&cs_);
+        return false;
+    }
 
     if (!open_file()) {
         DeleteCriticalSection(&cs_);
@@ -175,12 +175,18 @@ void JsonlWriter::rotate()
     for (int i = MAX_ROTATIONS - 1; i >= 1; --i) {
         std::string from = rotated_name(path_, i);
         std::string to   = rotated_name(path_, i + 1);
-        rename(from.c_str(), to.c_str()); /* OK if source doesn't exist */
+        if (rename(from.c_str(), to.c_str()) != 0 && errno != ENOENT) {
+            fprintf(stderr, "[siem] Cannot rotate log '%s' (errno %d)\n", from.c_str(), errno);
+            open_file();
+            return;
+        }
     }
 
     /* Current -> .1 */
     std::string first = rotated_name(path_, 1);
-    rename(path_.c_str(), first.c_str());
+    if (rename(path_.c_str(), first.c_str()) != 0 && errno != ENOENT) {
+        fprintf(stderr, "[siem] Cannot rotate current log (errno %d)\n", errno);
+    }
 
     /* Reopen fresh file */
     open_file();
@@ -191,13 +197,13 @@ bool JsonlWriter::write_event(const akav_siem_event_t* event)
     if (!initialized_ || !event)
         return false;
 
+    std::vector<char> line(16384);
     EnterCriticalSection(&cs_);
 
     /* Build the full NDJSON line:
      * {"event_id":"...","timestamp":"...","source_type":"...","event_type":"...",
      *  "agent_id":"...","payload":...}\n */
-    char line[16384];
-    int len = snprintf(line, sizeof(line),
+    int len = snprintf(line.data(), line.size(),
         "{\"event_id\":\"%s\",\"timestamp\":\"%s\","
         "\"source_type\":\"%s\",\"event_type\":\"%s\","
         "\"agent_id\":\"%s\",\"payload\":%s}\n",
@@ -205,7 +211,7 @@ bool JsonlWriter::write_event(const akav_siem_event_t* event)
         event->source_type, event->event_type,
         event->agent_id, event->payload_json);
 
-    if (len <= 0 || (size_t)len >= sizeof(line)) {
+    if (len <= 0 || (size_t)len >= line.size()) {
         LeaveCriticalSection(&cs_);
         return false;
     }
@@ -219,7 +225,7 @@ bool JsonlWriter::write_event(const akav_siem_event_t* event)
         return false;
     }
 
-    size_t written = fwrite(line, 1, (size_t)len, fp_);
+    size_t written = fwrite(line.data(), 1, (size_t)len, fp_);
     fflush(fp_);
     current_size_ += written;
 

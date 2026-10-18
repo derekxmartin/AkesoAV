@@ -233,10 +233,10 @@ bool Quarantine::load_key_dpapi()
 
     std::vector<uint8_t> blob(file_size);
     DWORD read_count = 0;
-    ReadFile(hf, blob.data(), file_size, &read_count, NULL);
+    BOOL read_ok = ReadFile(hf, blob.data(), file_size, &read_count, NULL);
     CloseHandle(hf);
 
-    if (read_count != file_size) {
+    if (!read_ok || read_count != file_size) {
         q_log("error", "Key file read incomplete");
         return false;
     }
@@ -362,7 +362,7 @@ bool Quarantine::encrypt_file(const char* src_path, const char* dst_path)
     }
 
     LARGE_INTEGER file_size;
-    if (!GetFileSizeEx(hf, &file_size) || file_size.QuadPart > (1LL << 30)) {
+    if (!GetFileSizeEx(hf, &file_size) || file_size.QuadPart < 0 || file_size.QuadPart > (1LL << 30)) {
         q_log("error", "File too large or size error: %s", src_path);
         CloseHandle(hf);
         return false;
@@ -372,19 +372,25 @@ bool Quarantine::encrypt_file(const char* src_path, const char* dst_path)
     std::vector<uint8_t> plaintext(data_len);
 
     DWORD read_count = 0;
+    BOOL read_ok = TRUE;
     if (data_len > 0) {
-        ReadFile(hf, plaintext.data(), (DWORD)data_len, &read_count, NULL);
+        read_ok = ReadFile(hf, plaintext.data(), (DWORD)data_len, &read_count, NULL);
     }
     CloseHandle(hf);
 
-    if (read_count != (DWORD)data_len) {
+    if (!read_ok || read_count != (DWORD)data_len) {
         q_log("error", "Read incomplete for '%s'", src_path);
+        SecureZeroMemory(plaintext.data(), plaintext.size());
         return false;
     }
 
     /* Generate random IV */
     uint8_t iv[GCM_IV_LEN];
-    BCryptGenRandom(NULL, iv, (ULONG)GCM_IV_LEN, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, iv, (ULONG)GCM_IV_LEN, BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
+        q_log("error", "Cannot generate quarantine encryption IV");
+        SecureZeroMemory(plaintext.data(), plaintext.size());
+        return false;
+    }
 
     /* Encrypt */
     std::vector<uint8_t> ciphertext(data_len);
@@ -438,7 +444,8 @@ bool Quarantine::decrypt_file(const char* src_path, const char* dst_path)
     }
 
     LARGE_INTEGER file_size;
-    if (!GetFileSizeEx(hf, &file_size)) {
+    if (!GetFileSizeEx(hf, &file_size) || file_size.QuadPart < 0 ||
+        file_size.QuadPart > (1LL << 30) + GCM_IV_LEN + GCM_TAG_LEN) {
         CloseHandle(hf);
         return false;
     }
@@ -453,10 +460,10 @@ bool Quarantine::decrypt_file(const char* src_path, const char* dst_path)
 
     std::vector<uint8_t> sqz_data(total);
     DWORD read_count = 0;
-    ReadFile(hf, sqz_data.data(), (DWORD)total, &read_count, NULL);
+    BOOL read_ok = ReadFile(hf, sqz_data.data(), (DWORD)total, &read_count, NULL);
     CloseHandle(hf);
 
-    if (read_count != (DWORD)total) {
+    if (!read_ok || read_count != (DWORD)total) {
         q_log("error", "Read incomplete for .sqz '%s'", src_path);
         return false;
     }
@@ -576,8 +583,11 @@ std::string Quarantine::generate_vault_id()
     localtime_s(&local_tm, &now);
 
     uint16_t rnd = 0;
-    BCryptGenRandom(NULL, (PUCHAR)&rnd, sizeof(rnd),
-                    BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, (PUCHAR)&rnd, sizeof(rnd),
+                                       BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
+        q_log("error", "Cannot generate quarantine vault ID");
+        return "";
+    }
 
     char buf[64];
     snprintf(buf, sizeof(buf), "q-%04d%02d%02d%02d%02d%02d-%04x",
@@ -726,18 +736,31 @@ std::string Quarantine::quarantine_file(const char* file_path,
     }
 
     LARGE_INTEGER file_size;
-    GetFileSizeEx(hf, &file_size);
+    if (!GetFileSizeEx(hf, &file_size) || file_size.QuadPart < 0 || file_size.QuadPart > (1LL << 30)) {
+        q_log("error", "Invalid size for quarantine source '%s'", file_path);
+        CloseHandle(hf);
+        return "";
+    }
 
     std::vector<uint8_t> file_data((size_t)file_size.QuadPart);
     DWORD read_count = 0;
+    BOOL read_ok = TRUE;
     if (file_size.QuadPart > 0)
-        ReadFile(hf, file_data.data(), (DWORD)file_size.QuadPart, &read_count, NULL);
+        read_ok = ReadFile(hf, file_data.data(), (DWORD)file_size.QuadPart, &read_count, NULL);
     CloseHandle(hf);
+    if (!read_ok || read_count != file_data.size()) {
+        q_log("error", "Incomplete quarantine source read for '%s'", file_path);
+        SecureZeroMemory(file_data.data(), file_data.size());
+        return "";
+    }
 
     std::string sha256_hex = compute_sha256_hex(file_data.data(), file_data.size());
+    SecureZeroMemory(file_data.data(), file_data.size());
+    if (sha256_hex.empty()) return "";
 
     /* Generate vault ID and encrypt */
     std::string vid = generate_vault_id();
+    if (vid.empty()) return "";
     std::string sqz = sqz_path(vid.c_str());
 
     if (!encrypt_file(file_path, sqz.c_str())) {

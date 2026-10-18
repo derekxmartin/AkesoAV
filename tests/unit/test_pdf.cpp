@@ -240,6 +240,20 @@ TEST(PDFASCIIHex, OddNibble)
     free(out);
 }
 
+TEST(PDFASCIIHex, EmptyAndExactCapacity)
+{
+    for (const char* encoded : {"", "4", "41", "4 1\n>"}) {
+        uint8_t* out = nullptr;
+        size_t out_len = 0;
+        ASSERT_TRUE(akav_pdf_decode_asciihex((const uint8_t*)encoded, strlen(encoded),
+                                            &out, &out_len));
+        EXPECT_EQ(out_len, encoded[0] == '\0' ? 0u : 1u);
+        EXPECT_EQ(out[out_len], 0);
+        if (out_len) EXPECT_EQ(out[0], strlen(encoded) == 1 ? 0x40 : 0x41);
+        free(out);
+    }
+}
+
 TEST(PDFLZW, DecompressSimple)
 {
     // Use ASCIIHex encode then LZW decode round-trip via a known good encoding.
