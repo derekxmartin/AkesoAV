@@ -11,7 +11,7 @@ python -m pip install pytest cryptography
 ./scripts/ci.ps1
 ```
 
-See [the CI workflow](.github/workflows/ci.yml) for operating system and runtime versions. Windows projects require Visual Studio 2022 C++ build tools; kernel-driver testing additionally requires a separate authorized Windows lab and the WDK. AkesoNDR requires libpcap development headers. Python checks use Python 3.12; Node checks use Node 24.
+See [the CI workflow](.github/workflows/ci.yml) for operating system and runtime versions. Use Visual Studio 2022 C++ build tools and Python 3.12. CI runs the script's build/test stages and the MSVC analysis build as separate required jobs. The script's existing test exclusions and skips remain visible in its output; a green run does not imply those cases passed. Kernel-driver testing additionally requires a separate authorized Windows lab and the WDK.
 
 ## Pull request evidence
 

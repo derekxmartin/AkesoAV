@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <cerrno>
+#include <vector>
 
 namespace akav {
 
@@ -196,13 +197,13 @@ bool JsonlWriter::write_event(const akav_siem_event_t* event)
     if (!initialized_ || !event)
         return false;
 
+    std::vector<char> line(16384);
     EnterCriticalSection(&cs_);
 
     /* Build the full NDJSON line:
      * {"event_id":"...","timestamp":"...","source_type":"...","event_type":"...",
      *  "agent_id":"...","payload":...}\n */
-    char line[16384];
-    int len = snprintf(line, sizeof(line),
+    int len = snprintf(line.data(), line.size(),
         "{\"event_id\":\"%s\",\"timestamp\":\"%s\","
         "\"source_type\":\"%s\",\"event_type\":\"%s\","
         "\"agent_id\":\"%s\",\"payload\":%s}\n",
@@ -210,7 +211,7 @@ bool JsonlWriter::write_event(const akav_siem_event_t* event)
         event->source_type, event->event_type,
         event->agent_id, event->payload_json);
 
-    if (len <= 0 || (size_t)len >= sizeof(line)) {
+    if (len <= 0 || (size_t)len >= line.size()) {
         LeaveCriticalSection(&cs_);
         return false;
     }
@@ -224,7 +225,7 @@ bool JsonlWriter::write_event(const akav_siem_event_t* event)
         return false;
     }
 
-    size_t written = fwrite(line, 1, (size_t)len, fp_);
+    size_t written = fwrite(line.data(), 1, (size_t)len, fp_);
     fflush(fp_);
     current_size_ += written;
 

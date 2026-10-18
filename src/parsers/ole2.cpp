@@ -710,6 +710,7 @@ void akav_ole2_free(AKAV_INOUT_OPT akav_ole2_t* ole2)
         for (uint32_t i = 0; i < ole2->num_streams; i++) {
             if (ole2->streams[i].data) {
                 free(ole2->streams[i].data);
+                ole2->streams[i].data = nullptr;
             }
         }
         free(ole2->streams);
@@ -719,6 +720,7 @@ void akav_ole2_free(AKAV_INOUT_OPT akav_ole2_t* ole2)
         for (uint32_t i = 0; i < ole2->num_vba_modules; i++) {
             if (ole2->vba_modules[i].source) {
                 free(ole2->vba_modules[i].source);
+                ole2->vba_modules[i].source = nullptr;
             }
         }
         free(ole2->vba_modules);

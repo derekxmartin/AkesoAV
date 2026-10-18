@@ -249,9 +249,11 @@ void akav_ooxml_free(AKAV_INOUT_OPT akav_ooxml_result_t* result)
 
     for (uint32_t i = 0; i < result->num_vba_modules && i < AKAV_OOXML_MAX_VBA_MODULES; i++) {
         free(result->vba_modules[i].source);
+        result->vba_modules[i].source = nullptr;
     }
     for (uint32_t i = 0; i < result->num_embedded && i < AKAV_OOXML_MAX_EMBEDDED; i++) {
         free(result->embedded[i].data);
+        result->embedded[i].data = nullptr;
     }
     memset(result, 0, sizeof(*result));
 }

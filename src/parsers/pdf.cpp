@@ -1232,16 +1232,20 @@ void akav_pdf_free(AKAV_INOUT_OPT akav_pdf_t* pdf)
     pdf->num_objects = 0;
 
     if (pdf->js_entries) {
-        for (uint32_t i = 0; i < pdf->num_js; i++)
+        for (uint32_t i = 0; i < pdf->num_js; i++) {
             free(pdf->js_entries[i].data);
+            pdf->js_entries[i].data = nullptr;
+        }
         free(pdf->js_entries);
         pdf->js_entries = nullptr;
     }
     pdf->num_js = 0;
 
     if (pdf->embedded_files) {
-        for (uint32_t i = 0; i < pdf->num_embedded; i++)
+        for (uint32_t i = 0; i < pdf->num_embedded; i++) {
             free(pdf->embedded_files[i].data);
+            pdf->embedded_files[i].data = nullptr;
+        }
         free(pdf->embedded_files);
         pdf->embedded_files = nullptr;
     }
